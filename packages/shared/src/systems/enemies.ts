@@ -2,11 +2,13 @@ import { CONFIG } from '../config';
 import { circleInCone, circlesOverlap, distance, distanceSq, length } from '../math/vec2';
 import { lanePath, nearestLane, territoryAt } from '../arena';
 import { otherTeam, type Body, type Enemy, type EntityId, type TargetKind } from '../types';
-import { damageTarget, forEachHostile, getTarget } from './targets';
+import { damageTarget, forEachHostile, getTarget, isBuilding } from './targets';
 import type { World } from '../world';
 
 const E = CONFIG.enemies;
 const B = CONFIG.bosses;
+/** Snipers see and shoot 1.5x as far as other shooters (screen-wise too). */
+const SNIPER_SCREEN_REACH = 1.5;
 
 interface AttackConfig {
   range: number;
@@ -79,7 +81,10 @@ export function updateEnemies(world: World, dt: number): void {
       const target = acquireTarget(world, e, dt);
       if (target) fight(world, e, target, dt);
       else idle(world, e, dt);
-      if (e.role === 'guardian') leash(e);
+      if (e.role === 'guardian') {
+        leash(e);
+        burnAura(world, e, dt);
+      }
     }
 
     e.x += e.vx * dt;
@@ -142,8 +147,32 @@ function chooseTarget(world: World, e: Enemy): Pick | null {
   }
   if (intruder) return intruder;
 
-  // 2. Otherwise: the nearest hostile unit or player within reach.
-  return nearestHostile(world, e, (body) => distance(body.x, body.y, e.x, e.y) <= V.engageRadius);
+  // 2. Otherwise: the nearest hostile unit or player within reach...
+  const unit = nearestHostile(world, e, (body) => distance(body.x, body.y, e.x, e.y) <= V.engageRadius);
+  if (unit) return unit;
+
+  // 3. ...and when the way is clear, the enemy towers and nexus on the lane.
+  let building: Pick | null = null;
+  let best2 = Infinity;
+  forEachHostile(world, e.team, (kind, id, body) => {
+    const d = distance(body.x, body.y, e.x, e.y) - body.radius;
+    if (d <= V.engageRadius && d < best2) {
+      best2 = d;
+      building = { kind, id, body };
+    }
+  }, { buildings: true });
+  return building;
+}
+
+/** Guardians burn hostile mobs around them, so waves cannot pile up at the nexus. */
+function burnAura(world: World, e: Enemy, dt: number): void {
+  const radius = world.server.guardianAuraRadius;
+  const damage = world.server.guardianAuraDamagePerSecond * dt;
+  if (radius <= 0 || damage <= 0) return;
+  for (const m of world.enemies.values()) {
+    if (m.team === e.team || m.boss) continue;
+    if (distanceSq(m.x, m.y, e.x, e.y) <= (radius + m.radius) ** 2) world.damageEnemy(m, damage, e.id, true);
+  }
 }
 
 function nearestHostile(world: World, e: Enemy, accept: (body: Body) => boolean): Pick | null {
@@ -429,14 +458,16 @@ function wander(world: World, e: Enemy, dt: number): void {
  */
 function updateShooter(world: World, e: Enemy, kind: ShooterKind, C: ShooterConfig, target: Body, dt: number): void {
   const dist = length(target.x - e.x, target.y - e.y) || 1;
-  const visible = isOnPlayerScreen(e, target);
+  // Snipers reach 1.5x farther: they may shoot from just outside the screen (the laser shows where).
+  const reach = kind === 'sniper' ? SNIPER_SCREEN_REACH : 1;
+  const visible = isOnPlayerScreen(e, target, reach);
   const speed = enemySpeed(world, kind);
 
   // Every shooter heads for its own spot around the player and slowly orbits it,
   // so a crowd surrounds the player instead of trailing behind him in one clump.
   e.slotAngle += e.strafeDir * E.slotDrift * dt;
   maybeFlipStrafe(world, e, dt);
-  const preferred = preferredDistance(e, C.preferredDistance * e.distanceScale, Math.cos(e.slotAngle), Math.sin(e.slotAngle));
+  const preferred = preferredDistance(e, C.preferredDistance * e.distanceScale, Math.cos(e.slotAngle), Math.sin(e.slotAngle), reach);
   const goal = slotPoint(world, e, target, preferred);
   const toGoal = length(goal.x - e.x, goal.y - e.y);
 
@@ -451,8 +482,8 @@ function updateShooter(world: World, e: Enemy, kind: ShooterKind, C: ShooterConf
   }
   steer(e, desiredX, desiredY, speed * C.accelerationFactor, dt);
 
-  // Regular shooters only open fire with a clear line; bosses shoot through walls.
-  const clearShot = e.boss || world.map.lineOfSight(e.x, e.y, target.x, target.y);
+  // Regular shooters only open fire with a clear line; bosses and snipers shoot through walls.
+  const clearShot = e.boss || kind === 'sniper' || world.map.lineOfSight(e.x, e.y, target.x, target.y);
   updateAttack(world, e, C.attack, C.aim, kind, target, dist, visible && clearShot, dt);
 }
 
@@ -532,7 +563,10 @@ function updateAttack(
       radius: A.projectileRadius,
       damage: mobDamage(world, e, A.damage),
       range: A.projectileRange,
-      ignoresWalls: e.boss,
+      ignoresWalls: e.boss || e.kind === 'sniper',
+      // Sniper shots fly over walls and buildings; a building they aim at still takes the hit.
+      piercesBuildings: e.kind === 'sniper',
+      aimedAt: e.targetKind && isBuilding(e.targetKind) ? e.targetId : null,
     });
     e.attackCooldown = world.rng.range(A.cooldownMin, A.cooldownMax) / world.mods.fireRate;
     return;
@@ -663,17 +697,18 @@ function swingBlade(world: World, e: Enemy): void {
   e.attackCooldown = C.leapTime + C.recoverTime / world.mods.fireRate;
 }
 
-/** Deals contact damage to the first overlapping hostile player or unit. Returns it on a hit or block. */
+/** Deals contact damage to the first touching hostile player, unit or building. Returns it on a hit or block. */
 function contactHit(world: World, e: Enemy, damage: number, cooldown: number): Body | null {
   if (e.contactCooldown > 0) return null;
   let hit: Body | null = null;
   forEachHostile(world, e.team, (kind, id, body) => {
-    if (!circlesOverlap(e.x, e.y, e.radius, body.x, body.y, body.radius)) return false;
+    // A little slack: buildings push units out, so they only ever touch them.
+    if (!circlesOverlap(e.x, e.y, e.radius + 4, body.x, body.y, body.radius)) return false;
     // 'false' means a dashing player: running through an enemy is allowed.
     if (!damageTarget(world, kind, id, mobDamage(world, e, damage), e.id, e.x, e.y)) return false;
     hit = body;
     return true;
-  }, { players: true, enemies: true });
+  });
   if (hit) e.contactCooldown = cooldown;
   return hit;
 }
@@ -715,19 +750,20 @@ function steer(e: Enemy, desiredX: number, desiredY: number, acceleration: numbe
  * The screen is wider than tall, so a fixed preferred distance would push shooters
  * off-screen vertically. Clamp it to the distance to the screen edge in this direction.
  */
-function preferredDistance(e: Enemy, preferred: number, dirX: number, dirY: number): number {
-  const halfW = CONFIG.view.width / 2 - e.radius - 40;
-  const halfH = CONFIG.view.height / 2 - e.radius - 40;
+function preferredDistance(e: Enemy, preferred: number, dirX: number, dirY: number, reach = 1): number {
+  const halfW = (CONFIG.view.width / 2) * reach - e.radius - 40;
+  const halfH = (CONFIG.view.height / 2) * reach - e.radius - 40;
   const ax = Math.abs(dirX);
   const ay = Math.abs(dirY);
   const toEdge = Math.min(ax > 1e-6 ? halfW / ax : Infinity, ay > 1e-6 ? halfH / ay : Infinity);
   return Math.max(120 + e.radius, Math.min(preferred, toEdge));
 }
 
-function isOnPlayerScreen(e: Enemy, p: Body): boolean {
+/** `reach` > 1 widens the screen (snipers may fire from a bit outside it). */
+function isOnPlayerScreen(e: Enemy, p: Body, reach = 1): boolean {
   return (
-    Math.abs(e.x - p.x) <= CONFIG.view.width / 2 - e.radius &&
-    Math.abs(e.y - p.y) <= CONFIG.view.height / 2 - e.radius
+    Math.abs(e.x - p.x) <= (CONFIG.view.width / 2) * reach - e.radius &&
+    Math.abs(e.y - p.y) <= (CONFIG.view.height / 2) * reach - e.radius
   );
 }
 

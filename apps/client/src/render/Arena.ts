@@ -1,4 +1,4 @@
-import { LANES, type ArenaLayout, type Nexus, type Player, type WorldView } from '@skillergo/shared';
+import { LANES, type ArenaLayout, type Nexus, type Player, type Tower, type WorldView } from '@skillergo/shared';
 import { TEAM_COLORS } from './teams';
 
 /**
@@ -56,13 +56,8 @@ export function drawArenaGround(ctx: CanvasRenderingContext2D, arena: Readonly<A
   ctx.restore();
 }
 
-/** The main building: crystal, HP bar with stage marks, guardian shield and a lock for low levels. */
-export function drawNexus(
-  ctx: CanvasRenderingContext2D,
-  n: Readonly<Nexus>,
-  view: WorldView,
-  me: Readonly<Player> | undefined,
-): void {
+/** The main building: crystal, HP bar with stage marks and the guardian shield. */
+export function drawNexus(ctx: CanvasRenderingContext2D, n: Readonly<Nexus>, view: WorldView): void {
   const colors = TEAM_COLORS[n.team];
   const time = view.time;
   const r = n.radius;
@@ -126,22 +121,98 @@ export function drawNexus(
     ctx.restore();
   }
 
-  // A padlock for players who cannot hurt this nexus yet.
-  if (!destroyed && me && me.team !== n.team && me.level < view.server.nexusUnlockLevel) {
-    drawLock(ctx, n.x, n.y, 30);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 15px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(`Lv ${view.server.nexusUnlockLevel}`, n.x, n.y + 26);
-  }
   ctx.restore();
 
-  drawNexusBar(ctx, n, n.x, n.y - r - 50, 240);
+  drawBuildingBar(ctx, n.team, n.hp, n.maxHp, n.x, n.y - r - 50, 240, [1 / 3, 2 / 3]);
 }
 
-function drawNexusBar(ctx: CanvasRenderingContext2D, n: Readonly<Nexus>, cx: number, y: number, width: number): void {
-  const colors = TEAM_COLORS[n.team];
+/**
+ * Lane tower: a round base with a turret that turns to its target. Enemy players see its
+ * range when they come close, in red when the tower is aiming at them.
+ */
+export function drawTower(
+  ctx: CanvasRenderingContext2D,
+  t: Readonly<Tower>,
+  view: WorldView,
+  me: Readonly<Player> | undefined,
+): void {
+  const colors = TEAM_COLORS[t.team];
+  const time = view.time;
+  const r = t.radius;
+  const range = view.server.towerRange;
+  const flash = time - t.lastHitTime < 0.1;
+
+  // Range circle for an enemy player nearby.
+  if (me && me.alive && me.team !== t.team) {
+    const d = Math.hypot(me.x - t.x, me.y - t.y);
+    if (d < range + 450) {
+      const aimedAtMe = t.targetKind === 'player' && t.targetId === me.id;
+      ctx.save();
+      ctx.globalAlpha = aimedAtMe ? 0.8 : Math.max(0.15, 0.5 * (1 - (d - range) / 450));
+      ctx.strokeStyle = aimedAtMe ? '#e5534b' : colors.dark;
+      ctx.lineWidth = aimedAtMe ? 5 : 3;
+      if (!aimedAtMe) ctx.setLineDash([18, 12]);
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, range, 0, Math.PI * 2);
+      ctx.stroke();
+      if (aimedAtMe) {
+        ctx.fillStyle = 'rgba(229, 83, 75, 0.06)';
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  ctx.save();
+  // Base.
+  ctx.fillStyle = colors.tint;
+  ctx.strokeStyle = colors.soft;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(t.x, t.y, r + 16, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = flash ? '#ffffff' : colors.main;
+  ctx.strokeStyle = colors.dark;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.arc(t.x, t.y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Turret facing the current target.
+  const target = findTarget(t, view);
+  const angle = target ? Math.atan2(target.y - t.y, target.x - t.x) : t.team === 'blue' ? -Math.PI / 4 : (Math.PI * 3) / 4;
+  ctx.translate(t.x, t.y);
+  ctx.rotate(angle);
+  ctx.fillStyle = colors.dark;
+  ctx.beginPath();
+  ctx.roundRect(0, -9, r + 22, 18, 5);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  drawBuildingBar(ctx, t.team, t.hp, t.maxHp, t.x, t.y - r - 40, 150, []);
+}
+
+function findTarget(t: Readonly<Tower>, view: WorldView): { x: number; y: number } | undefined {
+  if (t.targetId === null) return undefined;
+  if (t.targetKind === 'player') return view.players.get(t.targetId);
+  if (t.targetKind === 'enemy') return view.enemies.get(t.targetId);
+  return undefined;
+}
+
+function drawBuildingBar(
+  ctx: CanvasRenderingContext2D, team: Nexus['team'], hp: number, maxHp: number,
+  cx: number, y: number, width: number, marks: number[],
+): void {
+  const colors = TEAM_COLORS[team];
   const h = 14;
   const x = cx - width / 2;
   ctx.save();
@@ -149,37 +220,23 @@ function drawNexusBar(ctx: CanvasRenderingContext2D, n: Readonly<Nexus>, cx: num
   ctx.beginPath();
   ctx.roundRect(x, y, width, h, 5);
   ctx.fill();
-  const ratio = Math.max(0, n.hp / n.maxHp);
+  const ratio = Math.max(0, hp / maxHp);
   if (ratio > 0) {
     ctx.fillStyle = colors.main;
     ctx.beginPath();
     ctx.roundRect(x, y, width * ratio, h, 5);
     ctx.fill();
   }
-  // Marks at 2/3 and 1/3: every mark summons a guardian.
+  // Nexus: marks at 2/3 and 1/3, every mark summons a guardian.
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 3;
-  for (const k of [1 / 3, 2 / 3]) line(ctx, x + width * k, y - 2, x + width * k, y + h + 2);
+  for (const k of marks) line(ctx, x + width * k, y - 2, x + width * k, y + h + 2);
 
   ctx.fillStyle = '#333';
   ctx.font = 'bold 15px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  ctx.fillText(`${Math.ceil(n.hp)} / ${n.maxHp}`, cx, y - 4);
-  ctx.restore();
-}
-
-function drawLock(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
-  ctx.save();
-  ctx.fillStyle = 'rgba(40, 40, 40, 0.75)';
-  ctx.strokeStyle = 'rgba(40, 40, 40, 0.75)';
-  ctx.lineWidth = size * 0.16;
-  ctx.beginPath();
-  ctx.arc(cx, cy - size * 0.2, size * 0.32, Math.PI, 0);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.roundRect(cx - size * 0.5, cy - size * 0.2, size, size * 0.75, 5);
-  ctx.fill();
+  ctx.fillText(`${Math.ceil(hp)} / ${maxHp}`, cx, y - 4);
   ctx.restore();
 }
 

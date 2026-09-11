@@ -14,15 +14,16 @@
 
 `World.step()` в `packages/shared/src/world.ts` 60 раз в секунду вызывает системы строго по порядку:
 
-0. (один раз при создании мира) `GameMap.generate` в `map.ts` — расставляет стены-тетрамино; в режиме Versus ещё `setupArena` в `systems/arena.ts` — нексусы и фермеры
+0. (один раз при создании мира) `GameMap.generate` в `map.ts` — расставляет стены-тетрамино; в режиме Versus ещё `setupArena` в `systems/arena.ts` — нексусы, башни и фермеры
 1. `BotBrain.update` в `ai/bot.ts` — ИИ-игрок решает, что «нажать» (тот же `PlayerInput`, что у человека)
 2. `updatePlayers` — прокачка, баффы, движение, рывок, реген, оружие, нажатие способности, воскрешение
 3. `updateAbilities` — полёт и притягивание крюка, таймер щита
 4. `updateEnemies` — ИИ мобов, их выстрелы и удары
 5. `separateEnemies` — мобы расталкивают друг друга
-6. `updateProjectiles` — полёт пуль и попадания
-7. `updateOrbs` — опыт, хилки и усиления летят к игроку
-8. `updateSpawner` (выживание) или `updateArena` (Versus) — появление врагов, боссы / волны, фермеры, защитники
+6. `updateTowers` (только Versus) — башни выбирают цель и стреляют
+7. `updateProjectiles` — полёт пуль и попадания
+8. `updateOrbs` — опыт, хилки и усиления летят к игроку
+9. `updateSpawner` (выживание) или `updateArena` (Versus) — появление врагов, боссы / волны, фермеры, защитники
 
 Когда в Versus кто-то победил, `step` замораживает игру (время идёт только для эффектов).
 
@@ -71,7 +72,14 @@
 | Хочу поменять | Файл → функция |
 |---|---|
 | Разметка карты: половины, нейтральная полоса, линии top/mid/bot, базы, точки спавна | `arena.ts` → `createArenaLayout`, `territoryAt`, `lanePath`; размеры — `config.ts` → `arena` |
-| Нексус: кто может бить, 3 этапа, какой босс, победа | `world.ts` → `canDamageNexus`, `damageNexus`, `summonGuardian`, `onGuardianKilled` |
+| Нексус: неуязвимость при живом страже, 3 этапа, какой босс, победа | `world.ts` → `isNexusShielded`, `damageNexus`, `summonGuardian`, `onGuardianKilled` |
+| Где стоят башни (сколько на линии, насколько далеко от центра) | `arena.ts` → `towerSpots`; числа — `config.ts` → `versus.outerTowerPosition`, `innerTowerPosition`, `towerSideOffset`; количество — `towersPerLane` в конфиге |
+| В кого стреляет башня (мобы, игрок, «защита союзника») | `systems/towers.ts` → `pickTarget` |
+| Урон по башне, её падение: +1 уровень врагу, взрыв, вычищающий мобов | `world.ts` → `damageTower`, `destroyTower` |
+| Мобы идут бить башни и нексус, когда рядом нет врагов | `systems/enemies.ts` → `chooseTarget` (пункт 3) |
+| Аура стража, которая сжигает мобов, и неуязвимость боссов к мобам | `systems/enemies.ts` → `burnAura`; `world.ts` → `damageEnemy` |
+| Урезанный опыт (жёлтые шарики) и отключённые усиления в Versus | `world.ts` → `killEnemy` (доля — `nonPlayerKillXpMultiplier` в конфиге) |
+| Снайперы: дальность, стрельба сквозь стены и здания | `config.ts` → `enemies.sniper`; `systems/enemies.ts` → `updateShooter`, `SNIPER_SCREEN_REACH`; пролёт сквозь здания — `systems/projectiles.ts` → `hitSomething` |
 | Волны мобов по линиям, фермеры и их респаун | `systems/arena.ts` → `updateArena`, `spawnWave`, `spawnFarmer`, `respawnFarmers`; состав волны — `config.ts` → `versus.waveComposition` |
 | Реакция на игрока на чужой территории: защитники, свои мобы-сопровождение | `systems/arena.ts` → `sendDefenders`, `callEscorts` |
 | Кого выбирает целью моб (нарушитель, ближайший враг, нексус) | `systems/enemies.ts` → `chooseTarget` |
@@ -80,7 +88,8 @@
 | Боссы-стражи не уходят далеко от базы | `systems/enemies.ts` → `leash` (радиус — `config.ts` → `versus.bossLeash`) |
 | Бонус урона мобов на своей половине | `systems/enemies.ts` → `mobDamage` (`homeDefenseBonus` в конфиге) |
 | Смерть и воскрешение игрока, опыт за убийство игрока | `world.ts` → `killPlayer`, `respawnPlayer` |
-| ИИ-игрок: когда пушит, защищается, отступает, осаждает | `ai/bot.ts` → `think` (состояния `push` / `defend` / `retreat` / `siege` / `raid`) |
+| ИИ-игрок: когда пушит, защищается, отступает, осаждает | `ai/bot.ts` → `think` (состояния `push` / `defend` / `retreat` / `siege` / `raid`; осада начинается, когда на линии снесены обе башни) |
+| ИИ-игрок и башни: когда бить башню, как не стоять под её огнём | `ai/bot.ts` → `canHitTower`, `towerThreat` |
 | ИИ-игрок: выбор цели, движение, стрельба, уклонение рывком, прокачка | `ai/bot.ts` → `pickTarget`, `move`, `attack`, `dodge`, `spendUpgrades` |
 | Насколько хорошо играет ИИ | `ai/bot.ts` → конструктор (`skill` из ползунка сложности) |
 
@@ -94,11 +103,12 @@
 | Как рисуются игрок, враги, пули, орбы | `render/Renderer.ts` → `drawPlayer`, `drawEnemy`, `drawEnemyWeapon`, `drawProjectile`, `drawOrb` |
 | Как рисуются стены и их цвета | `render/Renderer.ts` → `drawWalls`, `WALL_COLORS` |
 | Цвета | `render/Renderer.ts` → `COLORS`; цвета команд, игроков и мобов — `render/teams.ts` (`TEAM_COLORS`, `PLAYER_STYLE`, `RED_MOBS`, `BLUE_MOBS`) |
-| Карта Versus: подсветка половин, линии, базы, нексус | `render/Arena.ts` → `drawArenaGround`, `drawNexus` |
+| Карта Versus: подсветка половин, линии, базы, нексус, башни и их радиус | `render/Arena.ts` → `drawArenaGround`, `drawNexus`, `drawTower` |
+| Аура стража, жёлтые шарики опыта | `render/Renderer.ts` → `drawGuardianAura`, `drawOrb` |
 | Миникарта | `render/Minimap.ts` |
 | Предупреждения врагов (лазер снайпера, красная зона Blademaster) | `render/Renderer.ts` → `drawEnemyTelegraph` |
 | HUD: уровень, HP, опыт, слоты, карточки прокачки, полоса босса, полосы нексусов, таймер воскрешения | `render/Hud.ts` (`drawNexusBars`, `drawRespawnOverlay`) |
-| Всплывающие цифры урона, баннеры (босс, страж, победа), вспышки, счётчик DPS | `render/Effects.ts` |
+| Всплывающие цифры урона, выстрелы башен, взрыв башни, баннеры (босс, страж, башня, победа), счётчик DPS | `render/Effects.ts` |
 | Иконки оружия и способностей | `render/icons.ts` |
 | Камера и зум | `render/Camera.ts` |
 | Стартовый экран: выбор оружия, ползунки | `ui/StartScreen.ts`, вёрстка — `index.html`, стили — `style.css` |

@@ -1,14 +1,17 @@
 import { LANES, depthInto, lanePath, territoryAt, type LaneId } from '../arena';
 import { CONFIG } from '../config';
-import { distance, length } from '../math/vec2';
+import { distance, distanceSq, length } from '../math/vec2';
 import { forEachHostile, getTarget } from '../systems/targets';
 import {
   UPGRADE_STATS,
+  otherTeam,
   type Body,
   type EntityId,
   type Player,
   type PlayerInput,
   type TargetKind,
+  type TeamId,
+  type Tower,
   type UpgradeRanks,
 } from '../types';
 import type { World } from '../world';
@@ -29,10 +32,11 @@ const WEAPON_RANGE = {
  *
  * Behaviour:
  * - defend: an enemy player is on our half -> go and push him out;
- * - push: walk a lane just behind our own wave and kill what comes;
+ * - push: walk a lane just behind our own wave, kill what comes, hit towers our mobs tank;
  * - raid: when strong, go for the enemy farmers (lots of XP);
- * - siege: level 10+ -> attack the enemy nexus and its guardians;
+ * - siege: the lane's enemy towers are down -> attack the enemy nexus and its guardians;
  * - retreat: low HP -> back home to regenerate.
+ * It never stands in an enemy tower's fire without mobs to tank it.
  */
 export class BotBrain {
   private state: BotState = 'push';
@@ -98,14 +102,22 @@ export class BotBrain {
     const hp = p.hp / p.maxHp;
     const enemy = [...world.players.values()].find((o) => o.team !== p.team);
 
+    const foe = otherTeam(p.team);
+    const openLane = LANES.find((lane) => towersLeft(world, foe, lane) === 0);
     if (this.state === 'retreat' ? hp < 0.85 : hp < 0.3) this.state = 'retreat';
     else if (enemy && enemy.alive && territoryAt(arena, enemy.x, enemy.y) === p.team) this.state = 'defend';
-    else if (p.level >= world.server.nexusUnlockLevel) this.state = 'siege';
-    else if (p.level >= 4 && hp > 0.75 && (!enemy || !enemy.alive || distance(p.x, p.y, enemy.x, enemy.y) > 1500)) this.state = 'raid';
-    else this.state = 'push';
+    else if (openLane && p.level >= 5 && hp > 0.5) {
+      this.state = 'siege';
+      this.lane = openLane;
+    } else if (p.level >= 4 && hp > 0.75 && (!enemy || !enemy.alive || distance(p.x, p.y, enemy.x, enemy.y) > 1500) && !this.towerThreat(world, p)) {
+      this.state = 'raid';
+    } else this.state = 'push';
 
-    // Occasionally switch lanes while pushing, like a player rotating.
-    if (this.state === 'push' && world.rng.next() < 0.004) this.lane = LANES[Math.floor(world.rng.next() * LANES.length)];
+    // Occasionally switch lanes while pushing, like a player rotating; prefer lanes with fewer enemy towers.
+    if (this.state === 'push' && world.rng.next() < 0.004) {
+      const lanes = [...LANES].sort((a, b) => towersLeft(world, foe, a) - towersLeft(world, foe, b));
+      this.lane = world.rng.next() < 0.6 ? lanes[0] : LANES[Math.floor(world.rng.next() * LANES.length)];
+    }
 
     this.target = this.pickTarget(world, p, enemy);
   }
@@ -124,24 +136,47 @@ export class BotBrain {
       }
     }
 
-    // Nearest threat or prey. Players and farmers are worth more than mobs.
+    // Nearest threat or prey. Players and farmers are worth more than mobs;
+    // towers only while our mobs soak their shots (or they are almost down).
     const range = this.state === 'retreat' ? 500 : 750;
     let best: { kind: TargetKind; id: EntityId } | null = null;
     let bestScore = Infinity;
     forEachHostile(world, p.team, (kind, id, body) => {
-      const d = distance(p.x, p.y, body.x, body.y);
+      const d = distance(p.x, p.y, body.x, body.y) - (kind === 'tower' ? body.radius : 0);
       if (d > range || !world.map.lineOfSight(p.x, p.y, body.x, body.y)) return;
       let score = d;
       if (kind === 'player') score *= 0.6;
       const e = kind === 'enemy' ? world.enemies.get(id) : undefined;
       if (e?.role === 'farmer') score *= 0.5;
       if (e?.boss && p.level < 8) score *= 3; // avoid bosses while weak
+      if (kind === 'tower') {
+        const t = world.towers.get(id)!;
+        if (!this.canHitTower(world, p, t)) return;
+        score *= 0.9;
+      }
       if (score < bestScore) {
         bestScore = score;
         best = { kind, id };
       }
-    }, { players: true, enemies: true });
+    }, { players: true, enemies: true, buildings: true });
     return best;
+  }
+
+  /** Safe to shoot at this tower: our mobs are in its range, or it is nearly down and we are healthy. */
+  private canHitTower(world: World, p: Player, t: Readonly<Tower>): boolean {
+    if (t.targetKind === 'player' && t.targetId === p.id) return t.hp / t.maxHp < 0.2 && p.hp / p.maxHp > 0.5;
+    return alliedMobsNear(world, p.team, t, world.server.towerRange) >= 1 || (t.hp / t.maxHp < 0.2 && p.hp / p.maxHp > 0.6);
+  }
+
+  /** An enemy tower that would shoot us where we stand (no mobs of ours to take its fire). */
+  private towerThreat(world: World, p: Player): Readonly<Tower> | null {
+    const range = world.server.towerRange + p.radius + 120;
+    for (const t of world.towers.values()) {
+      if (t.team === p.team || distanceSq(p.x, p.y, t.x, t.y) > range * range) continue;
+      if (t.targetKind === 'player' && t.targetId === p.id) return t;
+      if (!this.canHitTower(world, p, t) && alliedMobsNear(world, p.team, t, world.server.towerRange) === 0) return t;
+    }
+    return null;
   }
 
   private spendUpgrades(world: World, p: Player): void {
@@ -167,6 +202,16 @@ export class BotBrain {
       this.strafeDir = world.rng.next() < 0.5 ? -1 : 1;
     }
 
+    // Out of an enemy tower's fire first; keep shooting whatever is in range meanwhile.
+    const threat = this.towerThreat(world, p);
+    if (threat) {
+      const d = distance(p.x, p.y, threat.x, threat.y) || 1;
+      input.moveX = (p.x - threat.x) / d - ((p.y - threat.y) / d) * this.strafeDir * 0.3;
+      input.moveY = (p.y - threat.y) / d + ((p.x - threat.x) / d) * this.strafeDir * 0.3;
+      if (this.state === 'raid') this.state = 'push';
+      return;
+    }
+
     let goal: { x: number; y: number };
     if (this.state === 'retreat') {
       goal = arena.spawn[p.team];
@@ -183,8 +228,15 @@ export class BotBrain {
         input.moveY = toY * back + toX * this.strafeDir * 0.8;
         return;
       }
-    } else if (this.state === 'siege' || this.state === 'raid') {
-      const n = arena.nexus[p.team === 'blue' ? 'red' : 'blue'];
+    } else if (this.state === 'siege') {
+      // Down the open lane to the enemy hub, then to the nexus.
+      const path = lanePath(arena, this.lane, p.team);
+      const n = arena.nexus[otherTeam(p.team)];
+      const hub = path[path.length - 1];
+      const nearHub = distance(p.x, p.y, hub.x, hub.y) < 900;
+      goal = nearHub ? { x: n.x + (p.x - n.x) * 0.15, y: n.y + (p.y - n.y) * 0.15 } : this.nextLanePoint(p, path);
+    } else if (this.state === 'raid') {
+      const n = arena.nexus[otherTeam(p.team)];
       goal = { x: n.x + (p.x - n.x) * 0.15, y: n.y + (p.y - n.y) * 0.15 };
     } else {
       goal = this.laneFront(world, p);
@@ -221,6 +273,15 @@ export class BotBrain {
     return { x: front.x + ((home.x - front.x) / d) * 160, y: front.y + ((home.y - front.y) / d) * 160 };
   }
 
+  /** The first lane waypoint that is still ahead of us (deeper into enemy ground). */
+  private nextLanePoint(p: Player, path: readonly { x: number; y: number }[]): { x: number; y: number } {
+    const myDepth = depthInto(p.team, p.x, p.y);
+    for (const point of path) {
+      if (depthInto(p.team, point.x, point.y) < myDepth - 150) return point;
+    }
+    return path[path.length - 1];
+  }
+
   private pathTo(world: World, p: Player, gx: number, gy: number): { x: number; y: number } | null {
     const d = distance(p.x, p.y, gx, gy);
     if (d < 30) return null;
@@ -248,7 +309,8 @@ export class BotBrain {
 
     let wantAbility = false;
     if (p.abilityUnlocked && p.abilityCooldown <= 0 && clear) {
-      if (p.ability === 'hook') wantAbility = d > 200 && d < 600 && this.target?.kind !== 'nexus';
+      const building = this.target?.kind === 'nexus' || this.target?.kind === 'tower';
+      if (p.ability === 'hook') wantAbility = d > 200 && d < 600 && !building;
       else if (p.ability === 'shotgun') wantAbility = d < 280;
       else wantAbility = p.hp / p.maxHp < 0.7 && d < 700;
     }
@@ -282,4 +344,19 @@ export class BotBrain {
       this.dashSeq++;
     }
   }
+}
+
+function towersLeft(world: World, team: TeamId, lane: LaneId): number {
+  let n = 0;
+  for (const t of world.towers.values()) if (t.team === team && t.lane === lane) n++;
+  return n;
+}
+
+/** Our lane mobs within `range` of a point (they soak tower shots). */
+function alliedMobsNear(world: World, team: TeamId, at: { x: number; y: number }, range: number): number {
+  let n = 0;
+  for (const e of world.enemies.values()) {
+    if (e.team === team && !e.boss && e.role !== 'farmer' && distanceSq(e.x, e.y, at.x, at.y) <= range * range) n++;
+  }
+  return n;
 }

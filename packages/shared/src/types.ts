@@ -39,7 +39,10 @@ export interface Body {
   radius: number;
 }
 
-export type TargetKind = 'player' | 'enemy' | 'nexus';
+export type TargetKind = 'player' | 'enemy' | 'nexus' | 'tower';
+
+/** Buildings: they never move and cannot be pulled, only damaged. */
+export type BuildingKind = 'nexus' | 'tower';
 
 /** Upgrade tracks bound to keys 1 / 2 / 3. */
 export type UpgradeStat = 'weapon' | 'mobility' | 'ability';
@@ -65,6 +68,8 @@ export interface KillStats {
   boss: number;
   /** Versus: enemy players killed. */
   players: number;
+  /** Versus: enemy towers finished off. */
+  towers: number;
   byKind: Partial<Record<EnemyKind, number>>;
 }
 
@@ -311,8 +316,11 @@ export interface Projectile {
   radius: number;
   life: number;
   damage: number;
-  /** Boss attacks fly through walls. */
+  /** Boss attacks and sniper shots fly through walls. */
   ignoresWalls: boolean;
+  /** Sniper shots fly through buildings too, except the one they were aimed at. */
+  piercesBuildings: boolean;
+  aimedAt: EntityId | null;
 }
 
 export type OrbKind = 'xp' | 'heal' | 'power';
@@ -329,6 +337,8 @@ export interface Orb {
   power: PowerUpKind | null;
   /** Players of this team cannot pick the orb up (drops of their own units). */
   denyTeam: TeamId | null;
+  /** XP cut down because no player finished the unit off (drawn yellow). */
+  reduced: boolean;
   attractedTo: EntityId | null;
   speed: number;
   /** Seconds until the orb disappears. */
@@ -355,28 +365,43 @@ export type GameEvent =
   | { type: 'wallHit'; x: number; y: number }
   | { type: 'playerRespawned'; playerId: EntityId }
   | { type: 'nexusHit'; nexusId: EntityId; sourceId: EntityId; x: number; y: number; damage: number }
-  | { type: 'nexusImmune'; nexusId: EntityId; sourceId: EntityId; x: number; y: number; reason: 'level' | 'guardian' }
+  | { type: 'nexusImmune'; nexusId: EntityId; sourceId: EntityId; x: number; y: number }
+  | { type: 'towerHit'; towerId: EntityId; sourceId: EntityId; x: number; y: number; damage: number }
+  | { type: 'towerShot'; towerId: EntityId; team: TeamId; x: number; y: number; targetX: number; targetY: number }
+  | { type: 'towerDestroyed'; towerId: EntityId; team: TeamId; lane: LaneId; x: number; y: number; blastRadius: number; wiped: number }
   | { type: 'nexusStage'; nexusId: EntityId; team: TeamId; stage: number; boss: BossKind }
   | { type: 'victory'; team: TeamId };
 
-/** Versus: the main building. Losing it (and its last guardian) loses the match. */
-export interface Nexus {
+/** Common part of nexuses and towers. */
+export interface Building extends Body {
   id: EntityId;
   team: TeamId;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  radius: number;
   hp: number;
   maxHp: number;
+  lastHitTime: number;
+}
+
+/** Versus: the main building. Losing it (and its last guardian) loses the match. */
+export interface Nexus extends Building {
   /** Guardian bosses summoned so far (0..3). */
   stage: number;
   /** While its guardian lives the nexus cannot be damaged. */
   guardianId: EntityId | null;
   /** Remaining boss kinds, in the order they will appear (never repeats). */
   bossQueue: BossKind[];
-  lastHitTime: number;
+}
+
+/**
+ * Versus: lane tower. Lane mobs attack it; it shoots mobs first, players when no mob
+ * is around or when a player attacks an allied player in its range.
+ */
+export interface Tower extends Building {
+  lane: LaneId;
+  /** 0 = outer (closest to the middle of the map), then inwards. */
+  order: number;
+  attackCooldown: number;
+  targetKind: TargetKind | null;
+  targetId: EntityId | null;
 }
 
 /**
@@ -391,6 +416,7 @@ export interface WorldView {
   /** Versus layout (lanes, bases); null in survival and training. */
   readonly arena: Readonly<ArenaLayout> | null;
   readonly nexuses: ReadonlyMap<EntityId, Readonly<Nexus>>;
+  readonly towers: ReadonlyMap<EntityId, Readonly<Tower>>;
   readonly winner: TeamId | null;
   /** XP needed to go from `level` to the next one in this mode. */
   xpToNext(level: number): number;

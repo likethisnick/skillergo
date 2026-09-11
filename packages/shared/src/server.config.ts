@@ -47,7 +47,19 @@ export interface ServerConfig {
   respawnSeconds: number;
   respawnSecondsPerLevel: number;
   nexusHp: number;
-  nexusUnlockLevel: number;
+  towersPerLane: number;
+  towerHp: number;
+  /** Damage of one tower shot (mobs and players alike) and seconds between shots. */
+  towerDamage: number;
+  towerAttackSeconds: number;
+  towerRange: number;
+  /** A falling tower wipes the attacking mobs within this radius. */
+  towerBlastRadius: number;
+  /** Guardian bosses burn hostile mobs around them (mobs cannot hurt bosses). */
+  guardianAuraRadius: number;
+  guardianAuraDamagePerSecond: number;
+  /** XP left in a mob's drop when no player finished it off (0.4 = cut by 60%). */
+  nonPlayerKillXpMultiplier: number;
   waveIntervalSeconds: number;
   waveSize: number;
   /** Mobs deal this much more damage on their own half of the map. */
@@ -100,8 +112,16 @@ const FALLBACK: ServerConfig = {
   duelistBulletSpeedMultiplier: 1.6,
   respawnSeconds: 5,
   respawnSecondsPerLevel: 3,
-  nexusHp: 6000,
-  nexusUnlockLevel: 10,
+  nexusHp: 30000,
+  towersPerLane: 2,
+  towerHp: 4000,
+  towerDamage: 60,
+  towerAttackSeconds: 1,
+  towerRange: 700,
+  towerBlastRadius: 2560,
+  guardianAuraRadius: 420,
+  guardianAuraDamagePerSecond: 200,
+  nonPlayerKillXpMultiplier: 0.4,
   waveIntervalSeconds: 30,
   waveSize: 6,
   homeDefenseBonus: 0.25,

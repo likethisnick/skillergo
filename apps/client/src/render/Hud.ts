@@ -73,16 +73,8 @@ function drawStats(ctx: CanvasRenderingContext2D, me: Readonly<Player>, view: Wo
 
   let y = 162;
   if (view.mode === 'versus') {
-    // Players below the unlock level cannot hurt the enemy nexus.
-    const unlock = view.server.nexusUnlockLevel;
-    const open = me.level >= unlock;
-    ctx.fillStyle = open ? '#2e9e5b' : '#999';
-    ctx.font = `bold 13px ${FONT}`;
-    ctx.fillText(open ? 'Enemy nexus unlocked' : `Enemy nexus locked until Lv ${unlock}`, x, y);
-    ctx.font = `14px ${FONT}`;
-    ctx.fillStyle = '#666';
-    ctx.fillText(`Players ${me.killStats.players} · Deaths ${me.deaths}`, x, y + 20);
-    y += 46;
+    ctx.fillText(`Players ${me.killStats.players} · Towers ${me.killStats.towers} · Deaths ${me.deaths}`, x, y);
+    y += 26;
   }
 
   // Active power-ups with their remaining time.
@@ -208,6 +200,7 @@ function drawBossBar(ctx: CanvasRenderingContext2D, view: WorldView, width: numb
 const BANNER_LAYOUT = {
   boss: { y: 0.3, title: 56, subtitle: 22, gap: 44 },
   power: { y: 0.2, title: 34, subtitle: 16, gap: 30 },
+  tower: { y: 0.24, title: 40, subtitle: 17, gap: 34 },
   result: { y: 0.4, title: 84, subtitle: 24, gap: 60 },
 } as const;
 
@@ -313,8 +306,11 @@ function drawNexusBar(
     ctx.fillStyle = colors.dark;
     ctx.fillText(`${CONFIG.bosses[guardian.kind].name} guards it · ${Math.ceil(guardian.hp)} HP`, x + w / 2, y + h + 4, w + 40);
   } else {
+    let towers = 0;
+    for (const t of view.towers.values()) if (t.team === n.team) towers++;
+    const total = 3 * Math.max(0, Math.round(view.server.towersPerLane));
     ctx.fillStyle = '#999';
-    ctx.fillText(n.hp <= 0 ? 'Destroyed' : `Guardians ${n.stage} / 3`, x + w / 2, y + h + 4);
+    ctx.fillText(n.hp <= 0 ? 'Destroyed' : `Towers ${towers} / ${total} · Guardians ${n.stage} / 3`, x + w / 2, y + h + 4, w + 40);
   }
   ctx.restore();
 }

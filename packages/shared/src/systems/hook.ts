@@ -109,7 +109,7 @@ function updateFlying(world: World, p: Player, dt: number): void {
     if (h.damage > 0) damageTarget(world, kind, id, h.damage, p.id, h.x, h.y);
     struck = true;
     return true;
-  }, { players: true, nexuses: true });
+  }, { players: true, buildings: true });
   if (struck) {
     h.state = 'retracting';
     return;

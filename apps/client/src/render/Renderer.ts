@@ -8,7 +8,7 @@ import {
   type TeamId,
   type WorldView,
 } from '@skillergo/shared';
-import { drawArenaGround, drawNexus } from './Arena';
+import { drawArenaGround, drawNexus, drawTower } from './Arena';
 import { Camera } from './Camera';
 import type { Effects } from './Effects';
 import { drawHud } from './Hud';
@@ -31,6 +31,8 @@ export const COLORS = {
   powerWipe: '#7e57c2',
   enemyFlash: '#ffd6d2',
   orb: '#3cc36b',
+  /** XP left by a unit no player finished off (cut down). */
+  orbReduced: '#f2c12e',
   hook: '#6b5b4b',
   hpBack: '#e6e6e6',
   hpPlayer: '#3cc36b',
@@ -97,10 +99,11 @@ export class Renderer {
 
     this.drawGround(view);
     this.drawWalls(view);
-    for (const nexus of view.nexuses.values()) drawNexus(ctx, nexus, view, me);
+    for (const nexus of view.nexuses.values()) drawNexus(ctx, nexus, view);
+    for (const tower of view.towers.values()) drawTower(ctx, tower, view, me);
     for (const orb of view.orbs.values()) this.drawOrb(orb, view.time);
-    for (const enemy of view.enemies.values()) this.drawEnemyTelegraph(enemy, view.time, view);
-    for (const enemy of view.enemies.values()) this.drawEnemy(enemy, view.time);
+    for (const enemy of view.enemies.values()) this.drawEnemyTelegraph(enemy, view.time);
+    for (const enemy of view.enemies.values()) this.drawEnemy(enemy, view.time, view.server.guardianAuraRadius);
     for (const player of view.players.values()) this.drawPlayerUnderlay(player, view.time);
     for (const pr of view.projectiles.values()) this.drawProjectile(pr);
     for (const player of view.players.values()) this.drawPlayer(player, view.time);
@@ -432,17 +435,14 @@ export class Renderer {
   // ----------------------------------------------------------------- enemies
 
   /** Warnings drawn under enemies: laser sights, the Blademaster's swing zone. */
-  private drawEnemyTelegraph(e: Readonly<Enemy>, time: number, view: WorldView): void {
+  private drawEnemyTelegraph(e: Readonly<Enemy>, time: number): void {
     const { ctx } = this;
 
     if ((e.kind === 'sniper' || e.kind === 'duelist') && e.windup > 0) {
       const windup = e.kind === 'sniper' ? CONFIG.enemies.sniper.attack.windup : CONFIG.bosses.duelist.attack.windup;
       const progress = 1 - e.windup / windup;
-      // The sniper's sight stops at walls (its bullets do too); the boss shoots through them.
-      const endX = e.x + Math.cos(e.aim) * 1400;
-      const endY = e.y + Math.sin(e.aim) * 1400;
-      const wallT = e.boss ? null : view.map.raycast(e.x, e.y, endX, endY);
-      const reach = 1400 * (wallT ?? 1);
+      // Snipers and the Duelist shoot through walls, so the sight goes through them too.
+      const reach = e.kind === 'sniper' ? CONFIG.enemies.sniper.attack.projectileRange : 1400;
       ctx.save();
       ctx.strokeStyle = mobStyle(e.kind, e.team).fill;
       ctx.globalAlpha = 0.15 + 0.55 * progress;
@@ -488,9 +488,10 @@ export class Renderer {
     }
   }
 
-  private drawEnemy(e: Readonly<Enemy>, time: number): void {
+  private drawEnemy(e: Readonly<Enemy>, time: number, auraRadius: number): void {
     const { ctx } = this;
     const style = mobStyle(e.kind, e.team);
+    if (e.role === 'guardian' && auraRadius > 0) this.drawGuardianAura(e, time, auraRadius);
     const t = Math.min(1, e.age / CONFIG.enemies.spawnFadeIn);
     const r = e.radius * (0.6 + 0.4 * t);
 
@@ -536,6 +537,24 @@ export class Renderer {
       const color = e.elite ? COLORS.elite : allied ? TEAM_COLORS[e.team].main : COLORS.hpEnemy;
       this.drawHpBar(e.x, e.y - e.radius - (e.boss ? 26 : 16), barW, e.hp / e.maxHp, color, Math.ceil(e.hp));
     }
+  }
+
+  /** The burning zone around a guardian: mobs that step in melt. */
+  private drawGuardianAura(e: Readonly<Enemy>, time: number, radius: number): void {
+    const { ctx } = this;
+    const color = TEAM_COLORS[e.team];
+    ctx.save();
+    ctx.fillStyle = color.tint;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.35 + 0.2 * Math.sin(time * 5);
+    ctx.strokeStyle = color.main;
+    ctx.lineWidth = 4;
+    ctx.setLineDash([10, 14]);
+    ctx.lineDashOffset = time * 40;
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** Farmers wear a straw hat so they read as harmless at a glance. */
@@ -697,9 +716,10 @@ export class Renderer {
     } else {
       // Bigger XP (elites, bosses) means a bigger orb.
       const size = orb.xp >= 300 ? 2.2 : orb.xp >= 50 ? 1.6 : orb.xp > 10 ? 1.25 : 1;
-      ctx.shadowColor = COLORS.orb;
+      const color = orb.reduced ? COLORS.orbReduced : COLORS.orb;
+      ctx.shadowColor = color;
       ctx.shadowBlur = 14;
-      this.circle(orb.x, orb.y, orb.radius * pulse * size, COLORS.orb);
+      this.circle(orb.x, orb.y, orb.radius * pulse * size, color);
     }
     ctx.restore();
   }
@@ -708,6 +728,25 @@ export class Renderer {
 
   private drawEffects(effects: Effects): void {
     const { ctx } = this;
+
+    // Tower shots: a short bright line from the turret to the target.
+    for (const b of effects.beams) {
+      const k = 1 - b.age / b.life;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = k;
+      ctx.strokeStyle = b.color;
+      ctx.lineWidth = 10 * k + 2;
+      ctx.globalAlpha = 0.3 * k;
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(b.targetX, b.targetY);
+      ctx.stroke();
+      ctx.globalAlpha = k;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+    }
 
     for (const cone of effects.cones) {
       const k = 1 - cone.age / cone.life;

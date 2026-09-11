@@ -1,4 +1,4 @@
-import { LANES, lanePath, nearestLane, territoryAt, type LaneId } from '../arena';
+import { LANES, lanePath, nearestLane, territoryAt, towerSpots, type LaneId } from '../arena';
 import { CONFIG } from '../config';
 import { distance } from '../math/vec2';
 import { TEAMS, otherTeam, type Player, type RegularEnemyKind, type TeamId } from '../types';
@@ -6,12 +6,21 @@ import type { World } from '../world';
 
 const V = CONFIG.versus;
 
-/** Places both nexuses and the first farmers. Called once when a versus world is created. */
+/** Places both nexuses, the lane towers and the first farmers. Called once when a versus world is created. */
 export function setupArena(world: World): void {
   const arena = world.arena!;
   for (const team of TEAMS) {
     const n = arena.nexus[team];
     world.createNexus(team, n.x, n.y);
+    for (const lane of LANES) {
+      const spots = towerSpots(arena, lane, team, {
+        count: Math.max(0, Math.round(world.server.towersPerLane)),
+        outer: V.outerTowerPosition,
+        inner: V.innerTowerPosition,
+        sideOffset: V.towerSideOffset,
+      });
+      spots.forEach((s, order) => world.createTower(team, lane, order, s.x, s.y));
+    }
     for (let i = 0; i < world.server.farmerCount; i++) spawnFarmer(world, team);
   }
   world.waveTimer = V.firstWaveDelay;

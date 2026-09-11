@@ -38,6 +38,8 @@ export interface RunSummary {
     boss: number;
     /** Versus: enemy players killed. */
     players: number;
+    /** Versus: enemy towers finished off. */
+    towers: number;
     byKind: Partial<Record<EnemyKind, number>>;
   };
 }
@@ -77,6 +79,7 @@ export function buildRunSummary(
       elite: p.killStats.elite,
       boss: p.killStats.boss,
       players: p.killStats.players,
+      towers: p.killStats.towers,
       byKind: { ...p.killStats.byKind },
     },
   };

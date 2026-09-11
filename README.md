@@ -39,7 +39,12 @@ number is ignored (the default is used). Restart `npm run dev` after editing (Vi
 | `enemySpeed` + `<kind>SpeedMultiplier` | Base enemy speed; each enemy type is a multiplier of it (`wanderSpeedMultiplier` = idle walking) |
 | `bulletSpeed` + `<kind>BulletSpeedMultiplier` | Base bullet speed; the player's gun and each enemy bullet type are multipliers of it |
 | `respawnSeconds`, `respawnSecondsPerLevel` | Versus: respawn after 5 s + 3 s per level |
-| `nexusHp`, `nexusUnlockLevel` | Versus: nexus HP and the level needed to damage it |
+| `nexusHp` | Versus: nexus HP (anybody hostile can damage it, players and mobs) |
+| `towersPerLane`, `towerHp`, `towerRange` | Versus: towers per lane per team, their HP and firing range |
+| `towerDamage`, `towerAttackSeconds` | Versus: damage of one tower shot and seconds between shots |
+| `towerBlastRadius` | Versus: a falling tower wipes the attacking mobs within this radius (2560 = two screens) |
+| `guardianAuraRadius`, `guardianAuraDamagePerSecond` | Versus: the guardian boss burns hostile mobs around it |
+| `nonPlayerKillXpMultiplier` | XP left when no player finished the unit off (0.4 = cut by 60%, yellow orb) |
 | `waveIntervalSeconds`, `waveSize` | Versus: a wave per lane per team every 30 s, 6 mobs each |
 | `homeDefenseBonus` | Versus: mobs deal +25% damage on their own half |
 | `reinforcementSeconds`, `reinforcementSize` | Versus: while you stay on enemy ground, a defender squad comes every 10 s (grows over time) |
@@ -69,7 +74,7 @@ to `logs/history.jsonl`, one JSON object per line:
 ```
 
 Versus runs have `"mode":"versus"`, `"result":"victory"` / `"defeat"` (or `null` if you left early),
-`deaths` and `kills.players`.
+`deaths`, `kills.players` and `kills.towers`.
 
 The file is written by the Vite dev/preview server (`apps/client/dev/historyLog.ts`), so logging
 works with `npm run dev` and `npm run preview`. A static build without a server just skips it.
@@ -131,7 +136,7 @@ Enemy speed multiplies enemy movement and enemy bullet speed. The player is not 
 |---|---|
 | Grunt (red) | Keeps medium distance, shoots medium-speed bullets roughly at you (random spread, no leading) |
 | Rusher (orange) | Fast, rams you for contact damage, then bounces back |
-| Sniper (purple) | Small body, low HP, laser sight, fast bullets that lead your movement, gives 1.5x XP |
+| Sniper (purple) | Small body, low HP, laser sight, fast bullets that lead your movement, gives 1.5x XP. Shoots 1.5x farther (even from just off-screen) and through walls and buildings |
 
 Enemies spawn only where no player can see them and walk in from off-screen.
 Some spawn as **elites** (gold ring): 5x HP, 5x XP. Any enemy drops a **heal** (+10% HP) with a 10% chance.
@@ -154,21 +159,31 @@ A MOBA-like match on a bigger map (5200 x 5200), you (blue) against an AI player
 The map is split along the diagonal: blue owns the bottom-left half, red the top-right half,
 with a neutral band in the middle. Three lanes connect the bases: top, mid and bot.
 
-- **Nexus.** Each side has a main building in its corner. Only players of level 10+ can damage the enemy one.
-  Every lost third (at 2/3, 1/3 and 0 HP) summons a random guardian boss (Colossus, Duelist, Blademaster,
-  never the same one twice). While a guardian lives the nexus takes no damage. Destroy the nexus and kill its
-  last guardian to win. Guardians stay near their base and do not chase further than the middle of their half.
+- **Nexus.** Each side has a main building in its corner, very tanky (30000 HP) and always vulnerable: players
+  of any level and mobs can damage it. Every lost third (at 2/3, 1/3 and 0 HP) summons a random guardian boss
+  (Colossus, Duelist, Blademaster, never the same one twice). While a guardian lives the nexus takes no damage.
+  Destroy the nexus and kill its last guardian to win. Guardians stay near their base, do not chase further than
+  the middle of their half, cannot be hurt by mobs and burn every hostile mob that comes close (aura).
+- **Towers.** Two towers per lane per team, standing beside the lane on their own half. Lane mobs attack them.
+  A tower shoots the nearest enemy mob; it switches to a player when no mob is around, or at once when a player
+  attacks an allied player under it. When a tower falls, every player of the other team gets a whole level,
+  and the blast wipes all attacking mobs within two screens, so one tower does not cascade into the next.
 - **Waves.** Every 30 s each base sends 6 mobs down each lane. They fight the enemy mobs and mostly die in the
-  neutral zone; mobs deal +25% damage on their own half, so no side pushes deep without a player.
+  neutral zone; mobs deal +25% damage on their own half, so no side pushes deep without a player. Mobs that
+  win their fight go on to the enemy towers and then the nexus.
 - **Farmers.** Harmless NPCs (straw hats) wandering around each nexus. They run away and give the most XP.
 - **XP.** Everything drops XP: mobs a little, players more, farmers the most. You cannot pick up drops of your own team.
+  A mob finished off by another mob, a tower or a boss leaves only 40% of its XP (a yellow orb).
+  Power-ups (damage, speed, wipe) never drop in this mode; heals do.
 - **Intruders.** On enemy ground the nearby enemy mobs switch to you, some of your own mobs from the same lane come
   to escort you, and the longer you stay the bigger the enemy defender squads and the harder the AI tries to push you out.
-- **AI player.** When you are on your half it pushes with the waves, farms, levels up, and at level 10 sieges your
-  nexus; when you intrude it comes back to defend. It dodges bullets with dashes and spends upgrade points.
+- **AI player.** When you are on your half it pushes with the waves, hits towers while its mobs tank them, farms,
+  levels up, and once a lane is open (both towers down) sieges your nexus; when you intrude it comes back to defend.
+  It stays out of tower fire, dodges bullets with dashes and spends upgrade points.
 - **Death.** You respawn at your base after 5 s + 3 s per level, with 1.5 s of spawn protection.
 
-The HUD shows both nexuses (with guardian marks), the match clock, a minimap (top right) and a respawn countdown.
+The HUD shows both nexuses (towers left, guardian marks), the match clock, a minimap (top right) and a respawn countdown.
+An enemy tower shows its range when you come close, in red when it is aiming at you.
 
 ## Structure
 
@@ -188,12 +203,13 @@ packages/shared/          Pure game simulation: no DOM, runs in a browser or Nod
   src/ai/bot.ts           AI player: produces PlayerInput like a human would
   src/systems/            players (upgrades, buffs, move, dash, regen, respawn), weapons, abilities,
                           hook, enemies (AI), projectiles, orbs, power-ups, spawner (survival),
-                          arena (versus waves, farmers, defenders), targets (who can hit whom)
+                          arena (versus setup, waves, farmers, defenders), towers (versus tower fire),
+                          targets (who can hit whom)
 apps/client/              Browser client (Vite + TypeScript + Canvas 2D)
   src/session/            GameSession interface + LocalSession (runs World in the browser)
   src/input/              Keyboard/mouse -> PlayerInput
   src/render/             Camera, Canvas renderer, HUD, effects, icons, team colors,
-                          versus ground and nexus (Arena.ts), minimap
+                          versus ground, nexus and towers (Arena.ts), minimap
   src/ui/                 Start screen (loadout, settings, Play), Esc menu, training panel
   src/history/            Sends finished runs to the history endpoint
   dev/historyLog.ts       Vite plugin: POST /api/history -> logs/history.jsonl

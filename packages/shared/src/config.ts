@@ -26,6 +26,14 @@ export const CONFIG = {
 
   versus: {
     nexusRadius: 90,
+    towerRadius: 60,
+    /** Towers stand beside the lane, not on it, so marching mobs walk past them. */
+    towerSideOffset: 170,
+    /** Where towers stand on the own half of a lane: 0 = at the base hub, 1 = at the middle of the map. */
+    outerTowerPosition: 0.62,
+    innerTowerPosition: 0.28,
+    /** A tower switches to a player who hit an allied player within this many seconds. */
+    towerAggroMemory: 2,
     /** Mobs notice hostile units within this distance. */
     engageRadius: 650,
     /** Mobs defend their half against a player within this radius... */
@@ -210,18 +218,18 @@ export const CONFIG = {
       hp: 50,
       xp: 15,
       accelerationFactor: 4.4,
-      preferredDistance: 520,
+      preferredDistance: 780,
       spawnWeight: 2,
       /** Always leads a moving target (full intercept), almost no spread. */
       aim: { lead: 1, spread: deg(1) },
       attack: {
-        range: 900,
+        range: 1350,
         cooldownMin: 2.4,
         cooldownMax: 3.2,
         windup: 0.7,
         aimLock: 0.2,
         projectileRadius: 5,
-        projectileRange: 1300,
+        projectileRange: 1950,
         damage: 20,
       },
     },

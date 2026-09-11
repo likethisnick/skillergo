@@ -131,3 +131,67 @@ function distanceToSegment(a: Point, b: Point, x: number, y: number): number {
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(a.x + dx * t - x, a.y + dy * t - y);
 }
+
+/** Point at distance `dist` along a polyline, with the direction of that segment. */
+export function pointAlong(points: readonly Point[], dist: number): { x: number; y: number; dirX: number; dirY: number } {
+  let left = dist;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (left <= len || i === points.length - 2) {
+      const t = len > 0 ? Math.min(1, left / len) : 0;
+      const dirX = len > 0 ? (b.x - a.x) / len : 1;
+      const dirY = len > 0 ? (b.y - a.y) / len : 0;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, dirX, dirY };
+    }
+    left -= len;
+  }
+  const last = points[points.length - 1];
+  return { x: last.x, y: last.y, dirX: 1, dirY: 0 };
+}
+
+export function polylineLength(points: readonly Point[]): number {
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) total += Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
+  return total;
+}
+
+export interface TowerSpotOptions {
+  count: number;
+  /** 0..1 along the own half of the lane (0 = base hub, 1 = middle of the map). */
+  outer: number;
+  inner: number;
+  sideOffset: number;
+}
+
+/**
+ * Tower positions of one team on one lane, outer first. They stand a little to the side of
+ * the lane line (towards the map center), so marching mobs pass them instead of bumping in.
+ */
+export function towerSpots(layout: ArenaLayout, lane: LaneId, team: TeamId, o: TowerSpotOptions): Point[] {
+  const path = lanePath(layout, lane, team);
+  const half = polylineLength(path) / 2;
+  const center = layout.size / 2;
+  const spots: Point[] = [];
+  for (let i = 0; i < o.count; i++) {
+    const k = o.count === 1 ? (o.outer + o.inner) / 2 : o.outer + ((o.inner - o.outer) * i) / (o.count - 1);
+    const at = pointAlong(path, half * k);
+    // Perpendicular to the lane, pointing to the map center; the mid lane goes through
+    // the center, so there each team uses its own side (the map stays point-symmetric).
+    let nx = -at.dirY;
+    let ny = at.dirX;
+    const toCenter = (center - at.x) * nx + (center - at.y) * ny;
+    if (lane === 'mid') {
+      if ((team === 'blue') !== (nx + ny < 0)) {
+        nx = -nx;
+        ny = -ny;
+      }
+    } else if (toCenter < 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    spots.push({ x: at.x + nx * o.sideOffset, y: at.y + ny * o.sideOffset });
+  }
+  return spots;
+}

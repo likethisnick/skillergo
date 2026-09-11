@@ -25,9 +25,20 @@ interface ConeBlast {
 
 /** Centered screen-space announcement: boss arrival, a picked-up power-up or the match result. */
 export interface Banner {
-  kind: 'boss' | 'power' | 'result';
+  kind: 'boss' | 'power' | 'tower' | 'result';
   title: string;
   subtitle: string;
+  color: string;
+  age: number;
+  life: number;
+}
+
+/** Instant tower shot, drawn as a fading line. */
+interface Beam {
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
   color: string;
   age: number;
   life: number;
@@ -60,6 +71,7 @@ export class Effects {
   readonly texts: FloatingText[] = [];
   readonly cones: ConeBlast[] = [];
   readonly rings: Ring[] = [];
+  readonly beams: Beam[] = [];
   readonly banners: Banner[] = [];
   private readonly recentHits: { time: number; damage: number }[] = [];
   private clock = 0;
@@ -76,15 +88,39 @@ export class Effects {
           this.recentHits.push({ time: this.clock, damage: ev.damage });
           break;
         case 'nexusHit':
+        case 'towerHit':
           if (ev.sourceId === localPlayerId && ev.damage >= 5) this.addText(ev.x, ev.y - 40, `-${ev.damage}`, '#b83b34', 22, 0.8);
           break;
         case 'nexusImmune':
           if (ev.sourceId === localPlayerId && this.clock - this.lastImmuneHint > IMMUNE_HINT_INTERVAL) {
             this.lastImmuneHint = this.clock;
-            const text = ev.reason === 'level' ? `Level ${view.server.nexusUnlockLevel} needed` : 'Kill the guardian first';
-            this.addText(ev.x, ev.y - 50, text, '#777777', 20, 1);
+            this.addText(ev.x, ev.y - 50, 'Kill the guardian first', '#777777', 20, 1);
           }
           break;
+        case 'towerShot':
+          this.beams.push({
+            x: ev.x, y: ev.y, targetX: ev.targetX, targetY: ev.targetY,
+            color: ev.team === 'blue' ? '#4a90e2' : '#e5534b', age: 0, life: 0.18,
+          });
+          break;
+        case 'towerDestroyed': {
+          const color = ev.team === 'blue' ? '#2f6fb8' : '#b83b34';
+          this.rings.push({ x: ev.x, y: ev.y, color, radius: 220, age: 0, life: 0.7 });
+          this.rings.push({ x: ev.x, y: ev.y, color: '#f5b921', radius: ev.blastRadius, age: 0, life: 1.1 });
+          const ours = me?.team === ev.team;
+          const lane = ev.lane.toUpperCase();
+          this.setBanner({
+            kind: 'tower',
+            title: ours ? 'TOWER LOST' : 'TOWER DESTROYED',
+            subtitle: ours
+              ? `${lane} lane · the enemy got +1 level · the blast wiped ${ev.wiped} of their mobs`
+              : `${lane} lane · +1 level · the blast wiped ${ev.wiped} of our mobs`,
+            color: ours ? '#b83b34' : '#2e9e5b',
+            age: 0,
+            life: 2.6,
+          });
+          break;
+        }
         case 'nexusStage': {
           const ours = me?.team === ev.team;
           this.setBanner({
@@ -186,6 +222,7 @@ export class Effects {
     });
     age(this.cones, dt);
     age(this.rings, dt);
+    age(this.beams, dt);
     age(this.banners, dt);
     while (this.recentHits.length && this.clock - this.recentHits[0].time > DPS_WINDOW) this.recentHits.shift();
   }
@@ -201,14 +238,19 @@ export class Effects {
     this.texts.length = 0;
     this.cones.length = 0;
     this.rings.length = 0;
+    this.beams.length = 0;
     this.banners.length = 0;
     this.recentHits.length = 0;
   }
 
-  /** One banner of each kind at a time: a new one replaces the previous. The match result replaces all. */
+  /**
+   * One banner per slot: a new one replaces the previous. Boss and tower news share
+   * the middle of the screen; the match result replaces everything.
+   */
   private setBanner(banner: Banner): void {
+    const slot = (kind: Banner['kind']): string => (kind === 'tower' ? 'boss' : kind);
     for (let i = this.banners.length - 1; i >= 0; i--) {
-      if (this.banners[i].kind === banner.kind || banner.kind === 'result') this.banners.splice(i, 1);
+      if (slot(this.banners[i].kind) === slot(banner.kind) || banner.kind === 'result') this.banners.splice(i, 1);
     }
     this.banners.push(banner);
   }

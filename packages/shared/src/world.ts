@@ -22,6 +22,7 @@ import { updateOrbs } from './systems/orbs';
 import { updatePlayers } from './systems/players';
 import { updateProjectiles } from './systems/projectiles';
 import { updateSpawner } from './systems/spawner';
+import { updateTowers } from './systems/towers';
 import {
   BOSS_KINDS,
   DEFAULT_LOADOUT,
@@ -47,6 +48,7 @@ import {
   type Projectile,
   type ProjectileSource,
   type TeamId,
+  type Tower,
   type UpgradeStat,
   type WorldView,
 } from './types';
@@ -91,8 +93,11 @@ export interface ProjectileSpec {
   radius: number;
   damage: number;
   range: number;
-  /** Boss attacks fly through walls. */
+  /** Boss attacks and sniper shots fly through walls. */
   ignoresWalls?: boolean;
+  /** Sniper shots also fly through buildings, except `aimedAt`. */
+  piercesBuildings?: boolean;
+  aimedAt?: EntityId | null;
 }
 
 /**
@@ -128,6 +133,7 @@ export class World implements WorldView {
   readonly projectiles = new Map<EntityId, Projectile>();
   readonly orbs = new Map<EntityId, Orb>();
   readonly nexuses = new Map<EntityId, Nexus>();
+  readonly towers = new Map<EntityId, Tower>();
   /** AI brains of bot players, by player id. */
   readonly bots = new Map<EntityId, BotBrain>();
   readonly rng: Rng;
@@ -206,6 +212,7 @@ export class World implements WorldView {
     updateAbilities(this, dt); // hook flight / pull, shield timer
     updateEnemies(this, dt); // AI, enemy shots, contact damage
     separateEnemies(this); // keep crowds from stacking into one blob
+    if (this.isVersus) updateTowers(this, dt); // lane towers shoot mobs and intruders
     updateProjectiles(this, dt);
     updateOrbs(this, dt);
     if (this.isVersus) updateArena(this, dt);
@@ -263,7 +270,7 @@ export class World implements WorldView {
       upgradePoints: 0,
       ranks: { weapon: 0, mobility: 0, ability: 0 },
       upgradeLog: [],
-      killStats: { regular: 0, elite: 0, boss: 0, players: 0, byKind: {} },
+      killStats: { regular: 0, elite: 0, boss: 0, players: 0, towers: 0, byKind: {} },
       upgradeRequests: { weapon: 0, mobility: 0, ability: 0 },
       buffs: { damage: 0, attackSpeed: 0, speed: 0 },
       weapon: loadout.weapon,
@@ -323,11 +330,16 @@ export class World implements WorldView {
       // Tougher every level: +30% of the starting HP, and that much is healed right away.
       const bonus = CONFIG.player.maxHp * CONFIG.progression.hpPerLevel;
       player.maxHp += bonus;
-      player.hp = Math.min(player.maxHp, player.hp + bonus);
+      if (player.alive) player.hp = Math.min(player.maxHp, player.hp + bonus);
       if (player.level >= CONFIG.abilities.unlockLevel) player.abilityUnlocked = true;
       this.emit({ type: 'levelUp', playerId: player.id, level: player.level });
       needed = this.xpToNext(player.level);
     }
+  }
+
+  /** Exactly one level up, keeping the progress towards the next one (tower reward). */
+  grantLevel(player: Player): void {
+    this.grantXp(player, this.xpToNext(player.level));
   }
 
   /** Spends a point on an upgrade track. Free in the training room. */
@@ -379,17 +391,19 @@ export class World implements WorldView {
   /** Pushes a circle out of walls and buildings. */
   resolveObstacles(x: number, y: number, radius: number): { x: number; y: number } {
     const resolved = this.map.resolveCircle(x, y, radius);
-    for (const n of this.nexuses.values()) {
-      const dx = resolved.x - n.x;
-      const dy = resolved.y - n.y;
-      const min = n.radius + radius;
+    const push = (b: { x: number; y: number; radius: number }): void => {
+      const dx = resolved.x - b.x;
+      const dy = resolved.y - b.y;
+      const min = b.radius + radius;
       const distSq = dx * dx + dy * dy;
       if (distSq < min * min) {
         const d = Math.sqrt(distSq) || 1;
-        resolved.x = n.x + (dx / d) * min;
-        resolved.y = n.y + (dy / d) * min;
+        resolved.x = b.x + (dx / d) * min;
+        resolved.y = b.y + (dy / d) * min;
       }
-    }
+    };
+    for (const n of this.nexuses.values()) push(n);
+    for (const t of this.towers.values()) push(t);
     return resolved;
   }
 
@@ -557,6 +571,8 @@ export class World implements WorldView {
   /** `silent` skips the hit event and flash (used by the beam, which reports damage in batches). */
   damageEnemy(enemy: Enemy, damage: number, sourceId: EntityId, silent = false): void {
     if (this.winner) return;
+    // Versus bosses shrug off mobs and towers: only players can bring them down.
+    if (this.isVersus && enemy.boss && !this.players.has(sourceId)) return;
     enemy.lastHitTime = this.time;
     // Dummies never die.
     enemy.hp = Math.max(enemy.kind === 'dummy' ? 1 : 0, enemy.hp - damage);
@@ -583,12 +599,16 @@ export class World implements WorldView {
     if (!enemy.boss && enemy.role === 'survival') this.killsSinceBoss++;
 
     // Drops are for the other team: players cannot pick up what their own units leave.
-    const xp = Math.round(enemy.xp * this.server.xpMultiplier);
-    if (xp > 0) this.spawnOrb('xp', enemy.x, enemy.y, xp, null, enemy.team);
+    // A unit finished off by a mob, a tower or a boss leaves much less XP (a yellow orb).
+    const reduced = !killer && enemy.kind !== 'dummy';
+    const share = reduced ? this.server.nonPlayerKillXpMultiplier : 1;
+    const xp = Math.round(enemy.xp * this.server.xpMultiplier * share);
+    if (xp > 0) this.spawnOrb('xp', enemy.x, enemy.y, xp, null, enemy.team, reduced);
     if (enemy.kind !== 'farmer') {
       // Bosses always drop a heal; everybody else with a small chance.
       if (enemy.boss || this.rng.next() < CONFIG.drops.healChance) this.dropNear(enemy, 'heal');
-      if (allowPowerUps && !enemy.boss && this.rng.next() < CONFIG.powerUps.dropChance) {
+      // No power-ups in versus: they would decide fights by luck.
+      if (allowPowerUps && !this.isVersus && !enemy.boss && this.rng.next() < CONFIG.powerUps.dropChance) {
         const power = POWER_UP_KINDS[Math.floor(this.rng.next() * POWER_UP_KINDS.length)];
         this.dropNear(enemy, 'power', power);
       }
@@ -631,26 +651,25 @@ export class World implements WorldView {
     return nexus;
   }
 
-  /** Can this player damage that nexus right now? */
-  canDamageNexus(nexus: Readonly<Nexus>, attacker: Readonly<Player>): 'ok' | 'level' | 'guardian' | 'team' {
-    if (attacker.team === nexus.team) return 'team';
-    if (attacker.level < this.server.nexusUnlockLevel) return 'level';
-    if (nexus.guardianId !== null && this.enemies.has(nexus.guardianId)) return 'guardian';
-    return 'ok';
+  /** A nexus is immune only while its guardian lives. */
+  isNexusShielded(nexus: Readonly<Nexus>): boolean {
+    return nexus.guardianId !== null && this.enemies.has(nexus.guardianId);
+  }
+
+  /** Team of a player or unit, or null when it is gone (e.g. a bullet of a dead mob). */
+  teamOf(id: EntityId): TeamId | null {
+    return this.players.get(id)?.team ?? this.enemies.get(id)?.team ?? this.towers.get(id)?.team ?? null;
   }
 
   /**
-   * Only enemy players of level 10+ hurt a nexus, and never while its guardian lives.
+   * Anybody hostile hurts a nexus (players and mobs), but never while its guardian lives.
    * Each lost third summons the next guardian boss; the last one guards the ruins.
    */
   damageNexus(nexus: Nexus, damage: number, sourceId: EntityId, x: number, y: number): void {
     if (this.winner || nexus.hp <= 0) return;
-    const attacker = this.players.get(sourceId);
-    if (!attacker) return; // mobs cannot hurt a nexus
-    const check = this.canDamageNexus(nexus, attacker);
-    if (check === 'team') return;
-    if (check !== 'ok') {
-      this.emit({ type: 'nexusImmune', nexusId: nexus.id, sourceId, x, y, reason: check });
+    if (this.teamOf(sourceId) === nexus.team) return;
+    if (this.isNexusShielded(nexus)) {
+      if (this.players.has(sourceId)) this.emit({ type: 'nexusImmune', nexusId: nexus.id, sourceId, x, y });
       return;
     }
     const threshold = (nexus.maxHp * (2 - nexus.stage)) / 3;
@@ -687,6 +706,63 @@ export class World implements WorldView {
     }
   }
 
+  // ------------------------------------------------------------------- towers
+
+  createTower(team: TeamId, lane: LaneId, order: number, x: number, y: number): Tower {
+    const tower: Tower = {
+      id: this.newId(),
+      team,
+      lane,
+      order,
+      x,
+      y,
+      vx: 0,
+      vy: 0,
+      radius: CONFIG.versus.towerRadius,
+      hp: this.server.towerHp,
+      maxHp: this.server.towerHp,
+      lastHitTime: -Infinity,
+      attackCooldown: 0,
+      targetKind: null,
+      targetId: null,
+    };
+    this.towers.set(tower.id, tower);
+    return tower;
+  }
+
+  damageTower(tower: Tower, damage: number, sourceId: EntityId, x: number, y: number): void {
+    if (this.winner || !this.towers.has(tower.id)) return;
+    if (this.teamOf(sourceId) === tower.team) return;
+    tower.hp = Math.max(0, tower.hp - damage);
+    tower.lastHitTime = this.time;
+    this.emit({ type: 'towerHit', towerId: tower.id, sourceId, x, y, damage: Math.round(damage) });
+    if (tower.hp <= 0) this.destroyTower(tower, sourceId);
+  }
+
+  /**
+   * A falling tower gives every enemy player a whole level, and its blast wipes
+   * the attacking mobs around it, so one lost tower does not cascade into the next.
+   */
+  private destroyTower(tower: Tower, killerId: EntityId): void {
+    this.towers.delete(tower.id);
+    const radius = this.server.towerBlastRadius;
+    let wiped = 0;
+    for (const e of this.enemies.values()) {
+      if (e.team === tower.team || e.boss || e.role === 'farmer') continue;
+      if (distanceSq(e.x, e.y, tower.x, tower.y) > radius * radius) continue;
+      this.enemies.delete(e.id);
+      wiped++;
+      this.emit({ type: 'kill', targetId: e.id, killerId: tower.id, x: e.x, y: e.y, kind: e.kind });
+    }
+    const killer = this.players.get(killerId);
+    if (killer && killer.team !== tower.team) killer.killStats.towers++;
+    for (const p of this.players.values()) if (p.team !== tower.team) this.grantLevel(p);
+    this.emit({
+      type: 'towerDestroyed', towerId: tower.id, team: tower.team, lane: tower.lane,
+      x: tower.x, y: tower.y, blastRadius: radius, wiped,
+    });
+  }
+
   // ------------------------------------------------------- projectiles & orbs
 
   spawnProjectile(spec: ProjectileSpec): Projectile {
@@ -705,6 +781,8 @@ export class World implements WorldView {
       life: spec.range / spec.speed,
       damage: spec.damage,
       ignoresWalls: spec.ignoresWalls ?? false,
+      piercesBuildings: spec.piercesBuildings ?? false,
+      aimedAt: spec.aimedAt ?? null,
     };
     this.projectiles.set(projectile.id, projectile);
     return projectile;
@@ -712,7 +790,7 @@ export class World implements WorldView {
 
   spawnOrb(
     kind: OrbKind, x: number, y: number, xp: number,
-    power: PowerUpKind | null = null, denyTeam: TeamId | null = null,
+    power: PowerUpKind | null = null, denyTeam: TeamId | null = null, reduced = false,
   ): Orb {
     const radius = kind === 'heal' ? CONFIG.orb.healRadius : kind === 'power' ? CONFIG.powerUps.radius : CONFIG.orb.radius;
     const orb: Orb = {
@@ -724,6 +802,7 @@ export class World implements WorldView {
       xp,
       power,
       denyTeam,
+      reduced,
       attractedTo: null,
       speed: 0,
       life: CONFIG.drops.orbLifetime,

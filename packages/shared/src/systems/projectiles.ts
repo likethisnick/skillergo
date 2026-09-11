@@ -3,7 +3,7 @@ import { segmentCircleHit } from '../math/vec2';
 import type { EntityId, Projectile, TargetKind } from '../types';
 import type { World } from '../world';
 import { shieldCovers } from './abilities';
-import { damageTarget, forEachHostile } from './targets';
+import { damageTarget, forEachHostile, isBuilding } from './targets';
 
 export function updateProjectiles(world: World, dt: number): void {
   // Deleting from a Map while iterating it is safe in JS.
@@ -14,7 +14,7 @@ export function updateProjectiles(world: World, dt: number): void {
     pr.y += pr.vy * dt;
     pr.life -= dt;
 
-    // Walls stop every bullet except boss attacks. Only the part of the path
+    // Walls stop every bullet except boss attacks and sniper shots. Only the part of the path
     // before the wall can hit anybody.
     const wallT = pr.ignoresWalls ? null : world.map.raycast(x0, y0, pr.x, pr.y);
     if (wallT !== null) {
@@ -45,6 +45,8 @@ function hitSomething(world: World, pr: Projectile, x0: number, y0: number): boo
   const candidates: { kind: TargetKind; id: EntityId; t: number }[] = [];
 
   forEachHostile(world, pr.team, (kind, id, body) => {
+    // Sniper shots fly over buildings, except the one they were aimed at.
+    if (pr.piercesBuildings && isBuilding(kind) && id !== pr.aimedAt) return;
     let reach = body.radius + pr.radius;
     if (kind === 'player') {
       // An active shield facing the shot catches it a bit before it reaches the body.

@@ -59,6 +59,23 @@ export class Minimap {
       ctx.strokeRect(x - 6, y - 6, 12, 12);
     }
 
+    // Towers: small diamonds.
+    for (const t of view.towers.values()) {
+      const x = left + t.x * k;
+      const y = top + t.y * k;
+      ctx.fillStyle = TEAM_COLORS[t.team].dark;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 5);
+      ctx.lineTo(x + 5, y);
+      ctx.lineTo(x, y + 5);
+      ctx.lineTo(x - 5, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
     for (const e of view.enemies.values()) {
       if (e.role === 'farmer') dot(e.x, e.y, 1.8, '#d4a23f');
       else if (e.role === 'guardian') dot(e.x, e.y, 4.5, TEAM_COLORS[e.team].dark, '#ffffff');
