@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // No DOM lib on purpose: the simulation must stay runnable on a Node server.
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@skillergo/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p . && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@skillergo/shared": "*"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0"
+  }
+}

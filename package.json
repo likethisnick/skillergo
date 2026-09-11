@@ -1,0 +1,19 @@
+{
+  "name": "skillergo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @skillergo/client",
+    "build": "npm run build -w @skillergo/client",
+    "preview": "npm run preview -w @skillergo/client",
+    "typecheck": "tsc -p packages/shared && tsc -p apps/client"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}

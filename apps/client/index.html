@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Skillergo</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="start-screen" class="overlay">
+      <div class="menu">
+        <p id="game-over" class="game-over" hidden></p>
+        <div class="menu-main">
+          <div id="loadout" class="panel"></div>
+          <div class="play-column">
+            <button id="play-button" class="play-button" type="button">Play</button>
+            <button id="versus-button" class="secondary-button" type="button">Versus AI</button>
+            <button id="training-button" class="secondary-button" type="button">Training room</button>
+          </div>
+          <div id="settings" class="panel"></div>
+        </div>
+      </div>
+    </div>
+
+    <aside id="training-panel" class="training-panel" hidden></aside>
+
+    <div id="pause-menu" class="overlay overlay-dim" hidden>
+      <div class="pause-panel" role="dialog" aria-label="Menu">
+        <h2 class="pause-title">Menu</h2>
+        <p class="pause-note">The game keeps running</p>
+        <button class="menu-button" type="button" data-action="resume">Resume <span class="kbd">Esc</span></button>
+        <button class="menu-button" type="button" data-action="restart">Restart</button>
+        <button class="menu-button" type="button" data-action="menu">Main menu</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
