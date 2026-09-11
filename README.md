@@ -1,8 +1,7 @@
 # Skillergo
 
-Agar.io-like browser game. Survival, a training room and a Versus AI match (MOBA-like lanes and nexuses).
-Single player for now, structured so the simulation can move to an authoritative server for multiplayer later:
-the AI player already plays through the same `PlayerInput` a remote human would send.
+Agar.io-like browser game. Survival, a training room, a Versus AI match (MOBA-like lanes and nexuses)
+and ranked online 1v1 on the same Versus map against another human (authoritative game server, see below).
 
 ## Run
 
@@ -17,8 +16,12 @@ Open http://localhost:5173. Vite also prints a LAN address, so you can open the 
 
 Other scripts:
 
+- `npm run dev:server`: local game server for online matches on :8080 (guest login enabled)
 - `npm run build`: typecheck and build the client into `apps/client/dist`
+- `npm run build:server`: bundle the game server into `apps/server/dist/server.cjs`
 - `npm run typecheck`: typecheck all packages
+
+Online setup and deployment (Fly.io, GitHub / Google login), in Russian: see [MULTIPLAYER.md](MULTIPLAYER.md).
 
 Where is what (in Russian): see [STRUCTURE.md](STRUCTURE.md).
 
@@ -51,6 +54,7 @@ number is ignored (the default is used). Restart `npm run dev` after editing (Vi
 | `farmerCount`, `farmerHp`, `farmerXp`, `farmerRespawnSeconds` | Versus: farmers per base, their HP, XP and respawn time |
 | `playerKillXp`, `playerKillXpPerLevel` | Versus: XP for killing a player (60 + 8 per victim level) |
 | `versusLevelXp`, `versusLevelXpStep` | Versus XP curve: 1500, 1900, 2300... |
+| `startRating`, `ratingWin`, `ratingLoss` | Online: rating of a new player (1300), change for a win (+20) and a loss (-20) |
 | `historyEnabled`, `historyDir`, `historyFile` | Run history log (default `logs/history.jsonl` in the project root) |
 
 The difficulty and enemy speed sliders, upgrades and power-ups all multiply these values.
@@ -201,21 +205,31 @@ packages/shared/          Pure game simulation: no DOM, runs in a browser or Nod
   src/arena.ts            Versus layout: territories, neutral band, lanes, bases
   src/history.ts          Run summary (history log entry) builder
   src/ai/bot.ts           AI player: produces PlayerInput like a human would
+  src/net/                Online protocol (messages, validation, build fingerprint) and snapshot encoding
+  src/collision.ts        Walls + buildings collision shared by the server and client prediction
   src/systems/            players (upgrades, buffs, move, dash, regen, respawn), weapons, abilities,
                           hook, enemies (AI), projectiles, orbs, power-ups, spawner (survival),
                           arena (versus setup, waves, farmers, defenders), towers (versus tower fire),
                           targets (who can hit whom)
 apps/client/              Browser client (Vite + TypeScript + Canvas 2D)
-  src/session/            GameSession interface + LocalSession (runs World in the browser)
+  src/session/            GameSession interface, LocalSession (runs World in the browser),
+                          NetworkSession (online: prediction + snapshot interpolation)
+  src/net/                WebSocket connection, snapshot-backed WorldView, login token, server URL
   src/input/              Keyboard/mouse -> PlayerInput
   src/render/             Camera, Canvas renderer, HUD, effects, icons, team colors,
                           versus ground, nexus and towers (Arena.ts), minimap
-  src/ui/                 Start screen (loadout, settings, Play), Esc menu, training panel
+  src/ui/                 Start screen (loadout, settings, Play), online panel, Esc menu, training panel
   src/history/            Sends finished runs to the history endpoint
   dev/historyLog.ts       Vite plugin: POST /api/history -> logs/history.jsonl
+apps/server/              Game server (Node + ws), deployed to Fly.io (fly.toml, Dockerfile)
+  src/main.ts             HTTP (/health, /auth/*) + WebSocket (/ws)
+  src/lobby.ts            Connections, hello / login, matchmaking queue, the 60 Hz loop
+  src/match.ts            One 1v1 match: World, input queues, snapshots, reconnects, rating
+  src/oauth.ts            GitHub / Google login (OAuth code flow)
+  src/store.ts            users.json: accounts and ratings
 ```
 
-## Multiplayer path
+## Multiplayer
 
 The client never touches game rules directly. It only does three things:
 
@@ -223,15 +237,15 @@ The client never touches game rules directly. It only does three things:
 2. It reads a read-only `WorldView` to draw it.
 3. It reacts to `GameEvent`s (effects, sounds).
 
-To go multiplayer:
+Online, `apps/server` owns the `World` and steps it at 60 Hz. The client (`NetworkSession`):
 
-1. Add `apps/server` (Node + `uWebSockets.js` or `ws`) that owns a `World`, calls
-   `world.step()` at a fixed rate (20-30 Hz), applies client inputs with `world.setInput()`
-   and broadcasts snapshots and events.
-2. Add `NetworkSession implements GameSession` on the client. It sends inputs over a
-   WebSocket and builds a `WorldView` from snapshots, interpolating remote entities and
-   predicting the local player.
-3. Replace `new LocalSession()` with `new NetworkSession(url)` in `main.ts`.
+- turns frame input into fixed 60 Hz commands with sequence numbers; the server applies one per tick
+  and returns the last applied number (`ack`) in every snapshot;
+- predicts its own movement with the shared `stepMovement` and replays unconfirmed commands on top
+  of each server state, blending small corrections away;
+- draws everything else 0.1 s in the past, interpolating between snapshots (30 per second), and
+  releases `GameEvent`s when the drawn time reaches them.
 
-`packages/shared` has no DOM types on purpose (see its `tsconfig.json`), so it stays
-server-compatible. Collisions for fast objects are swept, so lower server tick rates are safe.
+Client and server compare a fingerprint of the protocol and all balance values on connect, so a
+client built from different code is asked to reload instead of desyncing.
+`packages/shared` has no DOM types on purpose (see its `tsconfig.json`), so it stays server-compatible.

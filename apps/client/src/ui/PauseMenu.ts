@@ -21,6 +21,14 @@ export class PauseMenu {
     this.root.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  /** Online: no restart, and leaving the match counts as a loss. */
+  setOnline(online: boolean): void {
+    const restart = this.root.querySelector<HTMLElement>('[data-action="restart"]');
+    const menu = this.root.querySelector<HTMLElement>('[data-action="menu"]');
+    if (restart) restart.hidden = online;
+    if (menu) menu.textContent = online ? 'Leave match (counts as a loss)' : 'Main menu';
+  }
+
   get isOpen(): boolean {
     return !this.root.hidden;
   }

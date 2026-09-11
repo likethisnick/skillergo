@@ -1,0 +1,22 @@
+{
+  "name": "@skillergo/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/server.cjs --external:bufferutil --external:utf-8-validate",
+    "start": "node dist/server.cjs"
+  },
+  "dependencies": {
+    "@skillergo/shared": "*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.12",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.2"
+  }
+}

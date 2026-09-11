@@ -5,3 +5,6 @@ dist/
 .vscode/*
 !.vscode/extensions.json
 logs/
+# Local game server data (users and ratings)
+apps/server/data/
+*.local

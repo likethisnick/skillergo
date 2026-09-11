@@ -25,6 +25,8 @@ export interface GameOverInfo {
   title?: string;
   /** Shown in green instead of red. */
   won?: boolean;
+  /** Appended at the end (online: rating change). */
+  extra?: string;
 }
 
 /** DOM overlay: loadout picker, round Play button and run settings. */
@@ -60,10 +62,17 @@ export class StartScreen {
     requireElement<HTMLButtonElement>('versus-button').addEventListener('click', () => start('versus'));
   }
 
+  /** Current weapon + ability (remembered for next time). Used by "Find match". */
+  selectedLoadout(): Loadout {
+    save(LOADOUT_KEY, this.loadout);
+    return { ...this.loadout };
+  }
+
   show(gameOver?: GameOverInfo): void {
     this.gameOver.hidden = !gameOver;
     if (gameOver) {
-      this.gameOver.textContent = `${gameOver.title ?? 'Game over'} · level ${gameOver.level} · ${gameOver.kills} kills`;
+      const extra = gameOver.extra ? ` · ${gameOver.extra}` : '';
+      this.gameOver.textContent = `${gameOver.title ?? 'Game over'} · level ${gameOver.level} · ${gameOver.kills} kills${extra}`;
       this.gameOver.classList.toggle('won', gameOver.won === true);
     }
     this.root.hidden = false;

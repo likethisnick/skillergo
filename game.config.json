@@ -56,6 +56,10 @@
   "versusLevelXp": 1500,
   "versusLevelXpStep": 400,
 
+  "startRating": 1300,
+  "ratingWin": 20,
+  "ratingLoss": 20,
+
   "historyEnabled": true,
   "historyDir": "logs",
   "historyFile": "history.jsonl"

@@ -1,5 +1,6 @@
 import { createArenaLayout, isKeptClear, type ArenaLayout } from './arena';
 import { BotBrain } from './ai/bot';
+import { resolveObstacles } from './collision';
 import { CONFIG } from './config';
 import {
   DEFAULT_SETTINGS,
@@ -12,7 +13,7 @@ import {
 import { GameMap, type FlowField } from './map';
 import { Rng } from './math/rng';
 import { distanceSq } from './math/vec2';
-import { xpToNextLevel } from './progression';
+import { versusXpToNext, xpToNextLevel } from './progression';
 import { resolveServerConfig, type ServerConfig } from './server.config';
 import { shieldCovers, updateAbilities } from './systems/abilities';
 import { setupArena, updateArena } from './systems/arena';
@@ -190,7 +191,7 @@ export class World implements WorldView {
   }
 
   xpToNext(level: number): number {
-    if (this.isVersus) return this.server.versusLevelXp + this.server.versusLevelXpStep * (level - 1);
+    if (this.isVersus) return versusXpToNext(this.server, level);
     return xpToNextLevel(level);
   }
 
@@ -390,21 +391,7 @@ export class World implements WorldView {
 
   /** Pushes a circle out of walls and buildings. */
   resolveObstacles(x: number, y: number, radius: number): { x: number; y: number } {
-    const resolved = this.map.resolveCircle(x, y, radius);
-    const push = (b: { x: number; y: number; radius: number }): void => {
-      const dx = resolved.x - b.x;
-      const dy = resolved.y - b.y;
-      const min = b.radius + radius;
-      const distSq = dx * dx + dy * dy;
-      if (distSq < min * min) {
-        const d = Math.sqrt(distSq) || 1;
-        resolved.x = b.x + (dx / d) * min;
-        resolved.y = b.y + (dy / d) * min;
-      }
-    };
-    for (const n of this.nexuses.values()) push(n);
-    for (const t of this.towers.values()) push(t);
-    return resolved;
+    return resolveObstacles(this.map, [this.nexuses.values(), this.towers.values()], x, y, radius);
   }
 
   /** Nearest wall-free spot for a circle, searching outwards from (x, y). */

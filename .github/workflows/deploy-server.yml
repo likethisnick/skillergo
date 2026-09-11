@@ -1,0 +1,27 @@
+# Deploys the game server to Fly.io when code it depends on changes on main.
+# Needs the repository secret FLY_API_TOKEN (fly tokens create deploy).
+name: Deploy game server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/server/**'
+      - 'packages/shared/**'
+      - 'game.config.json'
+      - 'fly.toml'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+concurrency: deploy-server
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

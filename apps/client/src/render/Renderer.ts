@@ -10,6 +10,7 @@ import {
 } from '@skillergo/shared';
 import { drawArenaGround, drawNexus, drawTower } from './Arena';
 import { Camera } from './Camera';
+import type { NetOverlay } from '../session/GameSession';
 import type { Effects } from './Effects';
 import { drawHud } from './Hud';
 import { drawIcon } from './icons';
@@ -61,7 +62,7 @@ const WALL_COLORS = [
 
 /**
  * Canvas 2D renderer. Reads only WorldView, so it works the same for
- * local and (future) networked sessions. Can be swapped for PixiJS later.
+ * local and online sessions. Can be swapped for PixiJS later.
  */
 export class Renderer {
   readonly camera = new Camera();
@@ -71,6 +72,7 @@ export class Renderer {
   /** Frame state shared by the draw helpers. */
   private versus = false;
   private myTeam: TeamId = 'blue';
+  private net: NetOverlay | undefined;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -80,12 +82,14 @@ export class Renderer {
     window.addEventListener('resize', this.resize);
   }
 
-  render(view: WorldView, localPlayerId: EntityId, effects: Effects): void {
+  /** `net` is present in online matches (names, ping, connection state). */
+  render(view: WorldView, localPlayerId: EntityId, effects: Effects, net?: NetOverlay): void {
     const { ctx, camera } = this;
     const me = view.players.get(localPlayerId);
     if (me) camera.follow(me.x, me.y);
     this.versus = view.mode === 'versus';
     this.myTeam = me?.team ?? 'blue';
+    this.net = net;
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = COLORS.outside;
@@ -118,7 +122,7 @@ export class Renderer {
         const size = camera.width < 700 ? 120 : 190;
         this.minimap.draw(ctx, view, localPlayerId, camera, camera.width - size - 20, 64, size, this.dpr);
       }
-      drawHud(ctx, me, view, effects, camera.width, camera.height);
+      drawHud(ctx, me, view, effects, camera.width, camera.height, net);
     }
   }
 
@@ -247,13 +251,14 @@ export class Renderer {
     const hpColor = p.team === this.myTeam ? COLORS.hpPlayer : COLORS.hpEnemy;
     this.drawHpBar(p.x, barY, 60, p.hp / p.maxHp, hpColor, Math.ceil(p.hp));
     if (this.versus) {
-      // Name tag: level for everyone, "AI" for bots.
+      // Name tag: level for everyone, "AI" for bots, the player's name online.
+      const name = this.net?.names.get(p.id);
       ctx.save();
       ctx.fillStyle = style.stroke;
       ctx.font = 'bold 13px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(p.isBot ? `AI · Lv ${p.level}` : `Lv ${p.level}`, p.x, barY - 20);
+      ctx.fillText(name ? `${name} · Lv ${p.level}` : p.isBot ? `AI · Lv ${p.level}` : `Lv ${p.level}`, p.x, barY - 20);
       ctx.restore();
     }
   }

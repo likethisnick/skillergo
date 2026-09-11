@@ -9,9 +9,11 @@
   ],
   "scripts": {
     "dev": "npm run dev -w @skillergo/client",
+    "dev:server": "npm run dev -w @skillergo/server",
     "build": "npm run build -w @skillergo/client",
+    "build:server": "npm run build -w @skillergo/server",
     "preview": "npm run preview -w @skillergo/client",
-    "typecheck": "tsc -p packages/shared && tsc -p apps/client"
+    "typecheck": "tsc -p packages/shared && tsc -p apps/client && tsc -p apps/server"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

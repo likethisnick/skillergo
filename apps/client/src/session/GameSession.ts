@@ -11,10 +11,23 @@ import type {
   WorldView,
 } from '@skillergo/shared';
 
+/** Extra things to draw in an online match. */
+export interface NetOverlay {
+  /** Round trip to the server in ms (null while unknown). */
+  ping: number | null;
+  /** Display names and ratings of the players, by entity id. */
+  names: ReadonlyMap<EntityId, string>;
+  ratings: ReadonlyMap<EntityId, number>;
+  /** Seconds a dropped opponent has left to come back; null while he is connected. */
+  opponentGraceLeft: number | null;
+  /** Our own connection is down and being restored. */
+  reconnecting: boolean;
+}
+
 /**
  * Abstraction over "where the simulation runs".
  * - LocalSession: the World runs right in the browser (single player, training room).
- * - NetworkSession (future): sends inputs over WebSocket and builds a WorldView
+ * - NetworkSession: sends inputs over WebSocket and builds a WorldView
  *   from server snapshots. Renderer, input and HUD code stay the same.
  */
 export interface GameSession {
@@ -22,6 +35,8 @@ export interface GameSession {
   readonly view: WorldView;
   /** Present only in the training room. */
   readonly training?: TrainingControls;
+  /** Present only in online matches. */
+  readonly net?: NetOverlay;
   sendInput(input: PlayerInput): void;
   /** Advances the session by real frame time; returns events that happened meanwhile. */
   update(frameDt: number): GameEvent[];

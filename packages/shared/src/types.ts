@@ -370,7 +370,8 @@ export type GameEvent =
   | { type: 'towerShot'; towerId: EntityId; team: TeamId; x: number; y: number; targetX: number; targetY: number }
   | { type: 'towerDestroyed'; towerId: EntityId; team: TeamId; lane: LaneId; x: number; y: number; blastRadius: number; wiped: number }
   | { type: 'nexusStage'; nexusId: EntityId; team: TeamId; stage: number; boss: BossKind }
-  | { type: 'victory'; team: TeamId };
+  /** `reason`: 'forfeit' when the other side left an online match (missing = the nexus fell). */
+  | { type: 'victory'; team: TeamId; reason?: 'nexus' | 'forfeit' };
 
 /** Common part of nexuses and towers. */
 export interface Building extends Body {

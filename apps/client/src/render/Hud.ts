@@ -14,6 +14,7 @@ import {
   type UpgradeStat,
   type WorldView,
 } from '@skillergo/shared';
+import type { NetOverlay } from '../session/GameSession';
 import { ABILITY_INFO, ABILITY_UPGRADE_TEXT, UPGRADE_INFO, WEAPON_INFO } from '../ui/loadoutInfo';
 import type { Effects } from './Effects';
 import { drawIcon, type IconName } from './icons';
@@ -31,15 +32,18 @@ export function drawHud(
   effects: Effects,
   width: number,
   height: number,
+  net?: NetOverlay,
 ): void {
   const training = view.mode === 'training';
   const versus = view.mode === 'versus';
   drawStats(ctx, me, view);
   if (training) drawTrainingInfo(ctx, effects, width);
+  else if (net) drawNetInfo(ctx, net, me, view, width);
   else drawSettings(ctx, view, width);
-  if (versus) drawNexusBars(ctx, me, view, width);
+  if (versus) drawNexusBars(ctx, me, view, width, net);
   else drawBossBar(ctx, view, width);
   if (versus && !me.alive) drawRespawnOverlay(ctx, me, width, height);
+  if (net) drawNetStatus(ctx, net, width, height);
   if (me.upgradePoints > 0 && !training) drawUpgradeChoices(ctx, me, width / 2, height - 190);
   drawSlots(ctx, me, view.server, width / 2, height - 62);
   drawBanners(ctx, effects, width, height);
@@ -172,6 +176,52 @@ function drawSettings(ctx: CanvasRenderingContext2D, view: WorldView, width: num
   ctx.restore();
 }
 
+/** Online: ping and both players' ratings in the top right corner. */
+function drawNetInfo(ctx: CanvasRenderingContext2D, net: NetOverlay, me: Readonly<Player>, view: WorldView, width: number): void {
+  ctx.save();
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  const ping = net.ping === null ? null : Math.round(net.ping);
+  ctx.fillStyle = ping === null ? '#999' : ping < 80 ? '#2e9e5b' : ping < 150 ? '#d98b1a' : '#c0392b';
+  ctx.font = `bold 13px ${FONT}`;
+  ctx.fillText(ping === null ? 'Ping …' : `Ping ${ping} ms`, width - 20, 20);
+  ctx.fillStyle = '#888';
+  ctx.font = `13px ${FONT}`;
+  const parts: string[] = [];
+  for (const p of view.players.values()) {
+    const name = net.names.get(p.id) ?? 'Player';
+    const rating = net.ratings.get(p.id);
+    parts[p.id === me.id ? 0 : 1] = `${name}${rating !== undefined ? ` ${rating}` : ''}`;
+  }
+  ctx.fillText(parts.filter(Boolean).join('  vs  '), width - 20, 38);
+  ctx.restore();
+}
+
+/** Online: our connection is down, or the opponent's is. */
+function drawNetStatus(ctx: CanvasRenderingContext2D, net: NetOverlay, width: number, height: number): void {
+  let text: string | null = null;
+  if (net.reconnecting) text = 'Connection lost · reconnecting…';
+  else if (net.opponentGraceLeft !== null) text = `Opponent disconnected · he loses in ${Math.ceil(net.opponentGraceLeft)} s`;
+  if (!text) return;
+  ctx.save();
+  ctx.font = `bold 16px ${FONT}`;
+  const w = ctx.measureText(text).width + 36;
+  const x = (width - w) / 2;
+  const y = height * 0.16;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.strokeStyle = '#d98b1a';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, 36, 18);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#8a5a0f';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, width / 2, y + 19);
+  ctx.restore();
+}
+
 function drawBossBar(ctx: CanvasRenderingContext2D, view: WorldView, width: number): void {
   let boss: Readonly<Enemy> | undefined;
   for (const e of view.enemies.values()) {
@@ -230,7 +280,7 @@ function drawBanners(ctx: CanvasRenderingContext2D, effects: Effects, width: num
 }
 
 /** Versus: both nexuses side by side at the top, match clock between them. */
-function drawNexusBars(ctx: CanvasRenderingContext2D, me: Readonly<Player>, view: WorldView, width: number): void {
+function drawNexusBars(ctx: CanvasRenderingContext2D, me: Readonly<Player>, view: WorldView, width: number, net?: NetOverlay): void {
   const nexuses = [...view.nexuses.values()].sort((a, b) => (a.team === 'blue' ? -1 : b.team === 'blue' ? 1 : 0));
   if (nexuses.length === 0) return;
   const narrow = width < 1000;
@@ -248,7 +298,7 @@ function drawNexusBars(ctx: CanvasRenderingContext2D, me: Readonly<Player>, view
 
   nexuses.forEach((n, i) => {
     const x = i === 0 ? cx - gap / 2 - barW : cx + gap / 2;
-    drawNexusBar(ctx, n, me, view, x, y, barW);
+    drawNexusBar(ctx, n, me, view, x, y, barW, net);
   });
   ctx.restore();
 }
@@ -259,12 +309,15 @@ function drawNexusBar(
   me: Readonly<Player>,
   view: WorldView,
   x: number, y: number, w: number,
+  net?: NetOverlay,
 ): void {
   const colors = TEAM_COLORS[n.team];
   const h = 14;
   let owner = n.team === me.team ? 'YOUR BASE' : 'ENEMY BASE';
   for (const p of view.players.values()) {
-    if (p.team === n.team && p.id !== me.id) owner += ` · ${p.isBot ? 'AI ' : ''}Lv ${p.level}${p.alive ? '' : ' (dead)'}`;
+    if (p.team !== n.team || p.id === me.id) continue;
+    const who = net?.names.get(p.id) ?? (p.isBot ? 'AI' : '');
+    owner += ` · ${who ? `${who} ` : ''}Lv ${p.level}${p.alive ? '' : ' (dead)'}`;
   }
 
   ctx.save();

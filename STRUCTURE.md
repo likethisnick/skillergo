@@ -6,6 +6,7 @@
 
 - **`packages/shared/src/`** — вся игровая логика: движение, бой, враги, опыт. Здесь нет браузера и отрисовки, этот же код потом запустится на сервере.
 - **`apps/client/src/`** — всё, что видит игрок: отрисовка, клавиатура и мышь, меню, HUD.
+- **`apps/server/src/`** — игровой сервер для онлайна: вход, очередь, матчи, рейтинг. Как запустить и задеплоить — [MULTIPLAYER.md](MULTIPLAYER.md).
 - **`game.config.json`** (в корне) — главные цифры баланса: `"название": число`.
 
 Клиент ничего не решает сам. Он отправляет в симуляцию нажатые клавиши (`PlayerInput`), читает состояние мира и рисует его.
@@ -98,7 +99,7 @@
 | Хочу поменять | Файл → функция |
 |---|---|
 | Главный цикл: старт, рестарт, смерть, победа, выход в меню | `main.ts` → `startGame`, `frame`, `leaveToMenu` |
-| Кто играет за красных в Versus, его оружие | `session/LocalSession.ts` (бот с `bot: true`) |
+| Кто играет за красных в Versus AI, его оружие | `session/LocalSession.ts` (бот с `bot: true`) |
 | Клавиши и мышь | `input/InputController.ts` (`DIRECTION_KEYS`, `DASH_KEYS`, `UPGRADE_KEYS`) |
 | Как рисуются игрок, враги, пули, орбы | `render/Renderer.ts` → `drawPlayer`, `drawEnemy`, `drawEnemyWeapon`, `drawProjectile`, `drawOrb` |
 | Как рисуются стены и их цвета | `render/Renderer.ts` → `drawWalls`, `WALL_COLORS` |
@@ -115,8 +116,27 @@
 | Названия и описания оружия и способностей | `ui/loadoutInfo.ts` |
 | Меню по Esc | `ui/PauseMenu.ts` |
 | Панель тренировочной комнаты | `ui/TrainingPanel.ts` |
-| Где запускается симуляция (локально или по сети) | `session/LocalSession.ts`, интерфейс — `session/GameSession.ts` |
+| Где запускается симуляция (локально или по сети) | `session/LocalSession.ts`, `session/NetworkSession.ts`, интерфейс — `session/GameSession.ts` |
 | Отправка истории забегов | `history/HistoryReporter.ts`; запись в файл — `apps/client/dev/historyLog.ts` |
+
+## Онлайн 1v1
+
+| Хочу поменять | Файл → функция |
+|---|---|
+| Рейтинг: старт, +за победу, −за поражение | `game.config.json` → `startRating`, `ratingWin`, `ratingLoss` |
+| Кто с кем играет (очередь, матчмейкинг) | `apps/server/src/lobby.ts` → `enqueue`, `matchmake` |
+| Сколько ждать отключившегося игрока, что происходит при выходе | `apps/server/src/match.ts` → `RECONNECT_GRACE_MS`, `surrender`, `checkDropped` |
+| Начисление рейтинга после матча | `apps/server/src/match.ts` → `end` |
+| Вход через GitHub / Google | `apps/server/src/oauth.ts`; ключи — переменные окружения (см. MULTIPLAYER.md) |
+| Где хранятся игроки и рейтинг | `apps/server/src/store.ts` → `users.json` в `DATA_DIR` |
+| Какие сообщения ходят между клиентом и сервером | `packages/shared/src/net/protocol.ts` (при изменении подними `PROTOCOL_VERSION`) |
+| Что попадает в снимок мира | `packages/shared/src/net/snapshot.ts` → `encodeSnapshotBody`, `decode*` |
+| Частота снимков, задержка интерполяции | `protocol.ts` → `TICKS_PER_SNAPSHOT`; `apps/client/src/session/NetworkSession.ts` → `INTERP_DELAY` |
+| Предсказание своего движения, сглаживание поправок | `NetworkSession.ts` → `produceCommands`, `reconcile`, `buildPlayers` |
+| Карточка «Online 1v1» в меню (вход, Find match, пинг) | `apps/client/src/ui/OnlinePanel.ts` |
+| Пинг и имена в HUD, плашка «соперник отключился» | `render/Hud.ts` → `drawNetInfo`, `drawNetStatus` |
+| Адрес игрового сервера для клиента | `apps/client/src/net/serverUrl.ts` (или `VITE_GAME_SERVER_URL` в Vercel) |
+| Какие страницы пускает сервер | `fly.toml` → `CLIENT_ORIGINS` |
 
 ## Рецепты
 
@@ -146,6 +166,7 @@
 ```bash
 npm run typecheck   # TypeScript подсветит всё, что ты забыл обновить
 npm run dev         # запусти и проверь в тренировочной комнате
+npm run dev:server  # (второй терминал) локальный сервер, чтобы проверить онлайн: два окна → Play as guest → Find match
 ```
 
 Если добавил новый тип (врага, оружие) и забыл прописать его в таблицах цветов, названий или иконок, `typecheck` покажет, где именно. Ветки в `switch` в системах (`updateEnemies`, `updateWeapon`) он не проверяет, их пройди по рецепту выше.

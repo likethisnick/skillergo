@@ -138,7 +138,9 @@ export class Effects {
           this.setBanner({
             kind: 'result',
             title: won ? 'VICTORY' : 'DEFEAT',
-            subtitle: won ? 'The enemy nexus has fallen' : 'Your nexus has fallen',
+            subtitle: ev.reason === 'forfeit'
+              ? won ? 'Your opponent left the match' : 'You left the match'
+              : won ? 'The enemy nexus has fallen' : 'Your nexus has fallen',
             color: won ? '#2e9e5b' : '#b83b34',
             age: 0,
             life: 4,

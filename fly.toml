@@ -1,0 +1,45 @@
+# Fly.io config of the game server (apps/server). Deploy from the repository root:
+#   fly deploy
+# The app name must be unique on Fly. If you change it, change PUBLIC_URL below and
+# PRODUCTION_SERVER in apps/client/src/net/serverUrl.ts (or VITE_GAME_SERVER_URL on Vercel).
+app = "skillergo-server"
+primary_region = "fra"
+kill_signal = "SIGINT"
+kill_timeout = "5s"
+
+[build]
+  dockerfile = "apps/server/Dockerfile"
+
+[env]
+  PUBLIC_URL = "https://skillergo-server.fly.dev"
+  # Pages allowed to connect and log in; * = any characters (covers Vercel preview URLs).
+  CLIENT_ORIGINS = "https://skillergo-client-16y6*.vercel.app,http://localhost:5173"
+
+# users.json with ratings lives on this volume and survives deploys and restarts.
+[[mounts]]
+  source = "skillergo_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Sleeps when nobody is connected (cheaper) and wakes up on the first visit in a few seconds.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 400
+    hard_limit = 500
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

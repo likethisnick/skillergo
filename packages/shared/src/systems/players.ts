@@ -1,5 +1,6 @@
 import { CONFIG } from '../config';
 import { clamp, length, normalize } from '../math/vec2';
+import type { ServerConfig } from '../server.config';
 import { dashCooldown, moveSpeed } from '../stats';
 import { UPGRADE_STATS, type Player } from '../types';
 import type { World } from '../world';
@@ -9,6 +10,18 @@ import { updateWeapon } from './weapons';
 const EPS = 1e-6;
 /** Protects against a huge counter jump (e.g. a reconnecting client) replaying many presses. */
 const MAX_UPGRADE_BACKLOG = 20;
+
+/**
+ * What player movement needs from the world. `World` implements it; a network client
+ * implements it too, so it can predict its own movement with exactly the same code.
+ */
+export interface MovementEnv {
+  readonly server: Readonly<ServerConfig>;
+  readonly width: number;
+  readonly height: number;
+  /** Pushes a circle out of walls and buildings. */
+  resolveObstacles(x: number, y: number, radius: number): { x: number; y: number };
+}
 
 export function updatePlayers(world: World, dt: number): void {
   for (const p of world.players.values()) {
@@ -23,8 +36,7 @@ export function updatePlayers(world: World, dt: number): void {
 
     applyUpgradeRequests(world, p);
     tickBuffs(p, dt);
-    handleDashRequest(world, p, dt);
-    move(world, p, dt);
+    if (stepMovement(world, p, dt)) world.emit({ type: 'dash', playerId: p.id });
     p.aim = p.input.aim;
     regenerate(world, p, dt);
 
@@ -60,34 +72,44 @@ function tickBuffs(p: Player, dt: number): void {
   p.buffs.speed = Math.max(0, p.buffs.speed - dt);
 }
 
-function handleDashRequest(world: World, p: Player, dt: number): void {
+/**
+ * Dash request + movement of one player for one tick, driven by `p.input`.
+ * Shared by the simulation and client-side prediction. Returns true when a dash started.
+ */
+export function stepMovement(env: MovementEnv, p: Player, dt: number): boolean {
+  const dashed = handleDashRequest(env, p, dt);
+  move(env, p, dt);
+  return dashed;
+}
+
+function handleDashRequest(env: MovementEnv, p: Player, dt: number): boolean {
   const D = CONFIG.dash;
   // The speed power-up shortens the cooldown right away, even mid-cooldown.
-  p.dashCooldown = Math.min(Math.max(0, p.dashCooldown - dt), dashCooldown(p, world.server));
+  p.dashCooldown = Math.min(Math.max(0, p.dashCooldown - dt), dashCooldown(p, env.server));
   const input = p.input;
-  if (input.dashSeq === p.lastDashSeq) return;
+  if (input.dashSeq === p.lastDashSeq) return false;
   p.lastDashSeq = input.dashSeq;
 
   const dir = normalize(input.dashX, input.dashY);
-  if (p.dashCooldown > EPS || p.dashTimer > 0 || (dir.x === 0 && dir.y === 0)) return;
+  if (p.dashCooldown > EPS || p.dashTimer > 0 || (dir.x === 0 && dir.y === 0)) return false;
 
   p.dashTimer = D.duration;
   p.dashDirX = dir.x;
   p.dashDirY = dir.y;
-  p.dashCooldown = dashCooldown(p, world.server);
+  p.dashCooldown = dashCooldown(p, env.server);
   if (D.invulnerable) p.invulnerableTimer = D.duration;
-  world.emit({ type: 'dash', playerId: p.id });
+  return true;
 }
 
-function move(world: World, p: Player, dt: number): void {
-  const { width, height } = world;
+function move(env: MovementEnv, p: Player, dt: number): void {
+  const { width, height } = env;
   p.invulnerableTimer = Math.max(0, p.invulnerableTimer - dt);
 
   let dx: number;
   let dy: number;
   if (p.dashTimer > 0) {
     // Short tumble: covers `dashDistance` over `dash.duration`.
-    const dashSpeed = world.server.dashDistance / CONFIG.dash.duration;
+    const dashSpeed = env.server.dashDistance / CONFIG.dash.duration;
     const t = Math.min(dt, p.dashTimer);
     dx = p.dashDirX * dashSpeed * t;
     dy = p.dashDirY * dashSpeed * t;
@@ -96,12 +118,12 @@ function move(world: World, p: Player, dt: number): void {
     // Clamp to unit length so diagonals are not faster,
     // but keep analog magnitude (< 1) for a future touch joystick.
     const len = length(p.input.moveX, p.input.moveY);
-    const scale = (len > 1 ? 1 / len : 1) * moveSpeed(p, world.server) * dt;
+    const scale = (len > 1 ? 1 / len : 1) * moveSpeed(p, env.server) * dt;
     dx = p.input.moveX * scale;
     dy = p.input.moveY * scale;
   }
   // Walls and buildings stop the player; he slides along them.
-  const resolved = world.resolveObstacles(p.x + dx, p.y + dy, p.radius);
+  const resolved = env.resolveObstacles(p.x + dx, p.y + dy, p.radius);
   const x = clamp(resolved.x, p.radius, width - p.radius);
   const y = clamp(resolved.y, p.radius, height - p.radius);
   p.vx = dt > 0 ? (x - p.x) / dt : 0;

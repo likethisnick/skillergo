@@ -1,10 +1,14 @@
-import type { GameMode, GameSettings, Loadout, RunEndReason } from '@skillergo/shared';
+import type { GameMode, GameSettings, Loadout, MatchStartInfo, RunEndReason } from '@skillergo/shared';
 import { HistoryReporter } from './history/HistoryReporter';
 import { InputController } from './input/InputController';
+import { takeLoginResult } from './net/authToken';
+import { Connection } from './net/Connection';
 import { Effects } from './render/Effects';
 import { Renderer } from './render/Renderer';
 import type { GameSession } from './session/GameSession';
 import { LocalSession } from './session/LocalSession';
+import { NetworkSession } from './session/NetworkSession';
+import { OnlinePanel } from './ui/OnlinePanel';
 import { PauseMenu } from './ui/PauseMenu';
 import { StartScreen, requireElement, type GameOverInfo } from './ui/StartScreen';
 import { TrainingPanel } from './ui/TrainingPanel';
@@ -22,19 +26,34 @@ interface RunConfig {
   mode: GameMode;
 }
 
+// A "Sign in with ..." redirect brings the login token back in the address bar: keep it
+// before the connection says hello with it.
+const loginResult = takeLoginResult();
+
 const canvas = requireElement<HTMLCanvasElement>('game');
 const renderer = new Renderer(canvas);
 const input = new InputController(canvas);
 const effects = new Effects();
 const trainingPanel = new TrainingPanel();
 const history = new HistoryReporter();
+const connection = new Connection();
 const startScreen = new StartScreen((loadout, settings, mode) => startGame({ loadout, settings, mode }));
+const onlinePanel = new OnlinePanel(connection, () => startScreen.selectedLoadout(), loginResult.error);
 const pauseMenu = new PauseMenu({
   onRestart: () => {
     finishRun('restart');
     if (lastRun) startGame(lastRun);
   },
-  onMainMenu: () => leaveToMenu(),
+  onMainMenu: () => {
+    if (session instanceof NetworkSession && !session.over) {
+      // Leaving an online match gives the win to the opponent.
+      session.surrender();
+      const me = session.view.players.get(session.localPlayerId);
+      leaveToMenu({ level: me?.level ?? 1, kills: me?.kills ?? 0, title: 'Defeat (left the match)', won: false });
+      return;
+    }
+    leaveToMenu();
+  },
 });
 
 let session: GameSession | null = null;
@@ -51,6 +70,11 @@ window.addEventListener('keydown', (e) => {
 // Closing or reloading the tab mid-run still records it.
 window.addEventListener('pagehide', () => finishRun('closed', true));
 
+// Online: the server starts the match (after Find match, or when we reconnect into a running one).
+connection.onMessage((m) => {
+  if (m.t === 'matchStart') startOnlineMatch(m.match);
+});
+
 /** Writes the current run to the history once (training runs are not recorded). */
 function finishRun(reason: RunEndReason, unloading = false): void {
   if (!session || runReported || session.training || !session.view.server.historyEnabled) return;
@@ -63,36 +87,55 @@ function finishRun(reason: RunEndReason, unloading = false): void {
 }
 
 function startGame(run: RunConfig): void {
-  session?.dispose();
-  cancelAnimationFrame(frameHandle);
+  onlinePanel.cancelSearch();
   lastRun = { ...run };
-  // Swap LocalSession for a NetworkSession here once multiplayer exists.
-  session = new LocalSession(run.loadout, run.settings, run.mode);
-  runReported = false;
-  input.resetCounters();
-  effects.clear();
-  pauseMenu.hide();
-  gameOverTimer = null;
-  lastTime = performance.now();
-
-  if (session.training) {
+  beginSession(new LocalSession(run.loadout, run.settings, run.mode));
+  if (session?.training) {
     trainingPanel.show(session.training, run.loadout, (loadout) => {
       // Restart in the training room keeps the gear picked on the panel.
       if (lastRun) lastRun.loadout = loadout;
     });
-  } else {
-    trainingPanel.hide();
   }
+}
+
+function startOnlineMatch(info: MatchStartInfo): void {
+  if (session instanceof NetworkSession && session.matchId === info.matchId) {
+    // Our connection dropped and came back: same match, same screen.
+    session.resume(info);
+    return;
+  }
+  lastRun = null;
+  onlinePanel.stopSearching();
+  startScreen.hide();
+  beginSession(new NetworkSession(connection, info));
+}
+
+function beginSession(next: GameSession): void {
+  session?.dispose();
+  cancelAnimationFrame(frameHandle);
+  session = next;
+  runReported = false;
+  input.resetCounters();
+  effects.clear();
+  pauseMenu.hide();
+  pauseMenu.setOnline(next instanceof NetworkSession);
+  trainingPanel.hide();
+  gameOverTimer = null;
+  lastTime = performance.now();
 
   if (import.meta.env.DEV) {
     // Handy for debugging from the browser console: __session.view.players
-    (window as unknown as { __session: GameSession }).__session = session;
+    (window as unknown as { __session: GameSession }).__session = next;
   }
   frameHandle = requestAnimationFrame(frame);
 }
 
 function leaveToMenu(gameOver?: GameOverInfo): void {
   finishRun('menu');
+  if (gameOver && session instanceof NetworkSession && session.result) {
+    const r = session.result;
+    gameOver = { ...gameOver, extra: `rating ${r.rating} (${r.delta >= 0 ? '+' : ''}${r.delta})` };
+  }
   session?.dispose();
   session = null;
   cancelAnimationFrame(frameHandle);
@@ -122,6 +165,12 @@ function frame(now: number): void {
   }
   if (me && session.training) trainingPanel.sync(me);
 
+  if (session instanceof NetworkSession && session.lost) {
+    const lostMe = session.view.players.get(session.localPlayerId);
+    leaveToMenu({ level: lostMe?.level ?? 1, kills: lostMe?.kills ?? 0, title: 'Disconnected · match lost', won: false });
+    return;
+  }
+
   const events = session.update(dt);
   const versus = session.view.mode === 'versus';
   for (const ev of events) {
@@ -132,7 +181,7 @@ function frame(now: number): void {
       lastGameOver = { level: ev.level, kills: me?.kills ?? 0 };
       finishRun('death');
     }
-    if (ev.type === 'victory' && me) {
+    if (ev.type === 'victory' && me && gameOverTimer === null) {
       gameOverTimer = VICTORY_DELAY;
       pauseMenu.hide();
       const won = ev.team === me.team;
@@ -143,7 +192,7 @@ function frame(now: number): void {
 
   effects.handle(events, session.localPlayerId, session.view);
   effects.update(dt);
-  renderer.render(session.view, session.localPlayerId, effects);
+  renderer.render(session.view, session.localPlayerId, effects, session.net);
 
   if (gameOverTimer !== null) {
     gameOverTimer -= dt;

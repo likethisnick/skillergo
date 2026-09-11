@@ -77,6 +77,13 @@ export interface ServerConfig {
   versusLevelXp: number;
   versusLevelXpStep: number;
 
+  // Online matches (ranked 1v1).
+  /** Rating of a new player. */
+  startRating: number;
+  /** Rating change for a win and for a loss. */
+  ratingWin: number;
+  ratingLoss: number;
+
   historyEnabled: boolean;
   historyDir: string;
   historyFile: string;
@@ -135,6 +142,9 @@ const FALLBACK: ServerConfig = {
   playerKillXpPerLevel: 8,
   versusLevelXp: 1500,
   versusLevelXpStep: 400,
+  startRating: 1300,
+  ratingWin: 20,
+  ratingLoss: 20,
   historyEnabled: true,
   historyDir: 'logs',
   historyFile: 'history.jsonl',

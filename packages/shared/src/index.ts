@@ -10,3 +10,7 @@ export { Rng } from './math/rng';
 export { GameMap, TETROMINO_NAMES, type FlowField } from './map';
 export * from './arena';
 export { World, type DamageResult, type EnemyOptions, type PlayerOptions, type ProjectileSpec, type WorldOptions } from './world';
+export { resolveObstacles } from './collision';
+export { stepMovement, type MovementEnv } from './systems/players';
+export * from './net/protocol';
+export * from './net/snapshot';
