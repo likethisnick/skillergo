@@ -243,8 +243,11 @@ Online, `apps/server` owns the `World` and steps it at 60 Hz. The client (`Netwo
   and returns the last applied number (`ack`) in every snapshot;
 - predicts its own movement with the shared `stepMovement` and replays unconfirmed commands on top
   of each server state, blending small corrections away;
-- draws everything else 0.1 s in the past, interpolating between snapshots (30 per second), and
-  releases `GameEvent`s when the drawn time reaches them.
+- predicts its own gun shots, sword swings and beam too (the server's copies of its bullets are hidden),
+  so attacks react on the same frame;
+- draws everything else slightly in the past, interpolating between snapshots (60 per second); the delay
+  adapts to measured jitter (~35-50 ms on a stable connection, up to 150 ms);
+- releases `GameEvent`s when the drawn time reaches them, except its own hits and level-ups, shown on arrival.
 
 Client and server compare a fingerprint of the protocol and all balance values on connect, so a
 client built from different code is asked to reload instead of desyncing.

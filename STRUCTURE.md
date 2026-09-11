@@ -131,8 +131,8 @@
 | Где хранятся игроки и рейтинг | `apps/server/src/store.ts` → `users.json` в `DATA_DIR` |
 | Какие сообщения ходят между клиентом и сервером | `packages/shared/src/net/protocol.ts` (при изменении подними `PROTOCOL_VERSION`) |
 | Что попадает в снимок мира | `packages/shared/src/net/snapshot.ts` → `encodeSnapshotBody`, `decode*` |
-| Частота снимков, задержка интерполяции | `protocol.ts` → `TICKS_PER_SNAPSHOT`; `apps/client/src/session/NetworkSession.ts` → `INTERP_DELAY` |
-| Предсказание своего движения, сглаживание поправок | `NetworkSession.ts` → `produceCommands`, `reconcile`, `buildPlayers` |
+| Частота снимков, задержка интерполяции | `protocol.ts` → `TICKS_PER_SNAPSHOT`; `apps/client/src/session/NetworkSession.ts` → `MIN_INTERP_DELAY`, `MAX_INTERP_DELAY`, `measureClock` |
+| Предсказание своего движения и выстрелов, сглаживание поправок | `NetworkSession.ts` → `predictStep`, `spawnGhost`, `updateGhosts`, `reconcile`, `buildPlayers` |
 | Карточка «Online 1v1» в меню (вход, Find match, пинг) | `apps/client/src/ui/OnlinePanel.ts` |
 | Пинг и имена в HUD, плашка «соперник отключился» | `render/Hud.ts` → `drawNetInfo`, `drawNetStatus` |
 | Адрес игрового сервера для клиента | `apps/client/src/net/serverUrl.ts` (или `VITE_GAME_SERVER_URL` в Vercel) |

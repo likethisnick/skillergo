@@ -16,10 +16,10 @@ import type { SnapshotMessage } from './snapshot';
  * Wire protocol between the browser client and the game server (JSON over WebSocket).
  * Bump PROTOCOL_VERSION whenever a message shape changes.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
-/** Simulation ticks between two snapshots (60 Hz / 2 = 30 snapshots per second). */
-export const TICKS_PER_SNAPSHOT = 2;
+/** Simulation ticks between two snapshots (1 = a snapshot every tick, 60 per second). */
+export const TICKS_PER_SNAPSHOT = 1;
 
 export type AuthProvider = 'github' | 'google';
 export type UserProvider = AuthProvider | 'guest';

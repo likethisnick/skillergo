@@ -19,7 +19,7 @@ import {
 } from '../types';
 
 /**
- * World state as sent to clients about 30 times per second.
+ * World state as sent to clients every simulation tick (60 times per second).
  * Players, towers and nexuses travel as (rounded) objects; the many small things
  * (mobs, bullets, orbs) as flat number arrays to keep the JSON short.
  */
@@ -78,7 +78,13 @@ export function encodeSnapshotBody(
   const pl: WirePlayer[] = [];
   for (const p of world.players.values()) {
     const { input: _input, upgradeLog: _log, prevAbilityHeld: _held, upgradeRequests: _requests, ...rest } = p;
-    pl.push(roundValues({ ...rest, killStats: { ...rest.killStats, byKind: {} } }));
+    const wire = roundValues({ ...rest, killStats: { ...rest.killStats, byKind: {} } });
+    // Exact timers: the client replays its movement and weapon from them (prediction).
+    wire.attackCooldown = p.attackCooldown;
+    wire.dashCooldown = p.dashCooldown;
+    wire.dashTimer = p.dashTimer;
+    wire.invulnerableTimer = p.invulnerableTimer;
+    pl.push(wire);
   }
   const en: number[][] = [];
   for (const e of world.enemies.values()) {
