@@ -14,3 +14,4 @@ export { resolveObstacles } from './collision';
 export { stepMovement, type MovementEnv } from './systems/players';
 export * from './net/protocol';
 export * from './net/snapshot';
+export { MAX_SHIELD_ARC, shotgunCone } from './systems/abilities';

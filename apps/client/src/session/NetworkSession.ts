@@ -1,6 +1,8 @@
 import {
   CONFIG,
   EMPTY_INPUT,
+  MAX_SHIELD_ARC,
+  abilityScaling,
   attackSpeedMultiplier,
   decodeEnemy,
   decodeOrb,
@@ -8,7 +10,9 @@ import {
   decodeProjectile,
   rayCircleDistance,
   segmentCircleHit,
+  shotgunCone,
   stepMovement,
+  weaponDamageMultiplier,
   type Body,
   type Enemy,
   type EntityId,
@@ -29,11 +33,13 @@ import {
 } from '@skillergo/shared';
 import type { Connection } from '../net/Connection';
 import { SnapshotView } from '../net/SnapshotView';
+import { Anticipation } from './Anticipation';
 import type { GameSession, NetOverlay } from './GameSession';
 
 const STEP = 1 / CONFIG.tickRate;
 const EPS = 1e-6;
 const W = CONFIG.weapons;
+const A = CONFIG.abilities;
 
 /** Bounds of the adaptive blending delay (seconds behind the server). */
 const MIN_INTERP_DELAY = 0.03;
@@ -72,6 +78,8 @@ interface Ghost {
   vy: number;
   radius: number;
   life: number;
+  /** Damage the server's copy of this bullet deals (for the anticipated damage number). */
+  damage: number;
 }
 
 /**
@@ -117,6 +125,13 @@ export class NetworkSession implements GameSession {
   private localSwing: { angle: number; at: number } | null = null;
   /** Where our predicted bullets hit walls recently (to skip the server's duplicate spark). */
   private ghostWallHits: { x: number; y: number; at: number }[] = [];
+  /** Visual anticipation of hits, kills, pickups and cut bullets (see Anticipation.ts). */
+  private readonly anticipation: Anticipation;
+  /** Effects of our own predicted actions (shotgun blast), shown this frame. */
+  private localEvents: GameEvent[] = [];
+  /** The last command the server has applied (its RMB state matters for press detection). */
+  private ackedInput: PlayerInput | null = null;
+  private newest: Frame | null = null;
 
   private opponentDroppedAt: number | null = null;
   private opponentGrace = 0;
@@ -128,6 +143,7 @@ export class NetworkSession implements GameSession {
     this.matchId = info.matchId;
     this.localPlayerId = info.you;
     this.view = new SnapshotView(info);
+    this.anticipation = new Anticipation(info.you);
     for (const p of info.players) {
       this.names.set(p.id, p.name);
       this.ratings.set(p.id, p.rating);
@@ -167,6 +183,8 @@ export class NetworkSession implements GameSession {
     this.clockSamples = [];
     this.renderTime = -1;
     this.ghosts = [];
+    this.newest = null;
+    this.ackedInput = null;
   }
 
   /** "Leave match": counts as a loss. */
@@ -181,8 +199,17 @@ export class NetworkSession implements GameSession {
 
   update(frameDt: number): GameEvent[] {
     this.produceCommands(frameDt);
-    const events = this.advanceView(frameDt);
+    const events = this.anticipation.filterServerEvents(this.advanceView(frameDt));
+    for (const ev of this.localEvents) events.push(ev);
+    this.localEvents = [];
     this.updateGhosts(frameDt, events);
+    const newest = this.newest;
+    if (newest) {
+      const swing = this.localSwing ? { angle: this.localSwing.angle, age: (performance.now() - this.localSwing.at) / 1000 } : null;
+      // Enemy bullets are drawn where they will be when our current input reaches the server.
+      const lead = this.interpDelay + (this.conn.ping ?? 0) / 2000;
+      this.anticipation.apply(this.view, newest.enemies, newest.projectiles, newest.orbs, frameDt, lead, swing, events);
+    }
     return events;
   }
 
@@ -225,7 +252,7 @@ export class NetworkSession implements GameSession {
   }
 
   /**
-   * One tick of our own player, in the same order as the server (move, aim, weapon).
+   * One tick of our own player, in the same order as the server (move, aim, weapon, ability).
    * `live` is false while replaying already predicted commands: then nothing is spawned again.
    */
   private predictStep(p: Player | null, input: PlayerInput, live: boolean): void {
@@ -233,14 +260,49 @@ export class NetworkSession implements GameSession {
     p.input = input;
     stepMovement(this.view, p, STEP);
     p.aim = input.aim;
+    this.predictWeapon(p, input, live);
+    this.predictAbility(p, input, live);
+  }
 
+  private predictWeapon(p: Player, input: PlayerInput, live: boolean): void {
     p.attackCooldown = Math.max(0, p.attackCooldown - STEP);
     if (p.weapon === 'beam' || !input.fire || p.attackCooldown > EPS) return;
     const cooldown = p.weapon === 'gun' ? W.gun.cooldown : W.sword.cooldown;
     p.attackCooldown = cooldown / attackSpeedMultiplier(p);
     if (!live) return;
-    if (p.weapon === 'gun') this.spawnGhost(p);
-    else this.localSwing = { angle: p.aim, at: performance.now() };
+    if (p.weapon === 'gun') {
+      this.spawnGhost(p);
+      return;
+    }
+    this.localSwing = { angle: p.aim, at: performance.now() };
+    const damage = this.view.server.swordDamage * weaponDamageMultiplier(p);
+    this.anticipation.hitMobsInCone(this.view, p, p.aim, W.sword.arc, W.sword.range, damage);
+  }
+
+  /** Shield and shotgun react on the press (the hook stays server-driven). Mirrors tryUseAbility. */
+  private predictAbility(p: Player, input: PlayerInput, live: boolean): void {
+    p.abilityCooldown = Math.max(0, p.abilityCooldown - STEP);
+    const pressed = input.ability && !p.prevAbilityHeld;
+    p.prevAbilityHeld = input.ability;
+    if (pressed && p.abilityUnlocked && p.abilityCooldown <= EPS && p.ability !== 'hook') {
+      const s = abilityScaling(p);
+      if (p.ability === 'shield') {
+        const duration = A.shield.duration * s.power;
+        p.shieldTimer = duration;
+        p.shieldArc = Math.min(MAX_SHIELD_ARC, A.shield.arc * s.radius);
+        p.abilityCooldown = duration + A.shield.cooldown * s.cooldown;
+        p.abilityCooldownTotal = A.shield.cooldown * s.cooldown;
+      } else {
+        const cone = shotgunCone(p, this.view.server);
+        p.abilityCooldown = A.shotgun.cooldown * s.cooldown;
+        p.abilityCooldownTotal = p.abilityCooldown;
+        if (live) {
+          this.localEvents.push({ type: 'shotgun', playerId: p.id, x: p.x, y: p.y, angle: p.aim, range: cone.range, arc: cone.arc });
+          this.anticipation.hitMobsInCone(this.view, p, p.aim, cone.arc, cone.range, cone.damage);
+        }
+      }
+    }
+    p.shieldTimer = Math.max(0, p.shieldTimer - STEP);
   }
 
   /** Same spawn point, speed and range as the server's fireGun. */
@@ -256,6 +318,7 @@ export class NetworkSession implements GameSession {
       vy: Math.sin(p.aim) * speed,
       radius: C.projectileRadius,
       life: C.range / speed,
+      damage: this.view.server.gunDamage * weaponDamageMultiplier(p),
     });
   }
 
@@ -278,7 +341,12 @@ export class NetworkSession implements GameSession {
         g.x = x0 + (g.x - x0) * wallT;
         g.y = y0 + (g.y - y0) * wallT;
       }
-      if (hitsHostile(view, team, g, x0, y0)) return false;
+      const hit = firstHostileHit(view, team, g, x0, y0, (id) => this.anticipation.isGone(id));
+      if (hit) {
+        const mob = view.enemies.get(hit);
+        if (mob) this.anticipation.hitMob(mob, g.damage, g.x, g.y);
+        return false;
+      }
       if (wallT !== null) {
         events.push({ type: 'wallHit', x: g.x, y: g.y });
         this.ghostWallHits.push({ x: g.x, y: g.y, at: now });
@@ -346,6 +414,7 @@ export class NetworkSession implements GameSession {
       released: false,
     });
     if (this.frames.length > 120) this.frames.splice(0, this.frames.length - 120);
+    this.newest = this.frames[this.frames.length - 1];
     this.measureClock(m.time);
     this.reconcile(m);
   }
@@ -394,8 +463,12 @@ export class NetworkSession implements GameSession {
   private reconcile(m: SnapshotMessage): void {
     const wire = m.pl.find((p) => p.id === this.localPlayerId);
     if (!wire) return;
+    const applied = this.pending.filter((c) => c.seq <= m.ack);
+    if (applied.length > 0) this.ackedInput = applied[applied.length - 1].input;
     this.pending = this.pending.filter((c) => c.seq > m.ack);
     const base = decodePlayer(wire);
+    // The server detects RMB presses against the last input it applied.
+    base.prevAbilityHeld = this.ackedInput?.ability ?? false;
     for (const c of this.pending) this.predictStep(base, c.input, false);
 
     const prev = this.predicted;
@@ -503,6 +576,10 @@ export class NetworkSession implements GameSession {
       shown.dashCooldown = p.dashCooldown;
       shown.invulnerableTimer = p.invulnerableTimer;
       shown.attackCooldown = p.attackCooldown;
+      shown.abilityCooldown = p.abilityCooldown;
+      shown.abilityCooldownTotal = p.abilityCooldownTotal;
+      shown.shieldTimer = p.shieldTimer;
+      shown.shieldArc = p.shieldArc;
       shown.aim = this.latestInput.aim;
     }
     // Hits on us are drawn as soon as we hear about them, not after the blending delay.
@@ -545,12 +622,24 @@ function predictBeam(view: SnapshotView, p: Player, firing: boolean): Player['be
   return { ...p.beam, active: true, endX: p.x + dirX * reach, endY: p.y + dirY * reach, targetId };
 }
 
-function hitsHostile(view: SnapshotView, team: TeamId, g: Ghost, x0: number, y0: number): boolean {
-  let hit = false;
-  forEachVisibleHostile(view, team, (_id, body) => {
-    if (!hit && segmentCircleHit(x0, y0, g.x, g.y, body.x, body.y, body.radius + g.radius)) hit = true;
+/** The first hostile body along the bullet's path this frame (as the server picks the earliest one). */
+function firstHostileHit(
+  view: SnapshotView, team: TeamId, g: Ghost, x0: number, y0: number, gone: (id: EntityId) => boolean,
+): EntityId | null {
+  const dx = g.x - x0;
+  const dy = g.y - y0;
+  const lenSq = dx * dx + dy * dy || 1;
+  let best: EntityId | null = null;
+  let bestT = Infinity;
+  forEachVisibleHostile(view, team, (id, body) => {
+    if (gone(id) || !segmentCircleHit(x0, y0, g.x, g.y, body.x, body.y, body.radius + g.radius)) return;
+    const t = ((body.x - x0) * dx + (body.y - y0) * dy) / lenSq;
+    if (t < bestT) {
+      bestT = t;
+      best = id;
+    }
   });
-  return hit;
+  return best;
 }
 
 /** Hostile bodies as they are drawn: mobs, the opponent (unless dashing), towers and standing nexuses. */

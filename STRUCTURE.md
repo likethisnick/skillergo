@@ -136,6 +136,8 @@
 | Что попадает в снимок мира | `packages/shared/src/net/snapshot.ts` → `encodeSnapshotBody`, `decode*` |
 | Частота снимков, задержка интерполяции | `protocol.ts` → `TICKS_PER_SNAPSHOT`; `apps/client/src/session/NetworkSession.ts` → `MIN_INTERP_DELAY`, `MAX_INTERP_DELAY`, `measureClock` |
 | Предсказание своего движения и выстрелов, сглаживание поправок | `NetworkSession.ts` → `predictStep`, `spawnGhost`, `updateGhosts`, `reconcile`, `buildPlayers` |
+| Мгновенные «мультяшные» урон, смерть мобов, подбор опыта, срезание пуль; чужие пули «в твоём времени» | `apps/client/src/session/Anticipation.ts` (сроки отката — константы вверху файла) |
+| Мгновенный щит и дробовик | `NetworkSession.ts` → `predictAbility` |
 | Карточка «Online 1v1» в меню (вход, Find match, пинг) | `apps/client/src/ui/OnlinePanel.ts` |
 | Пинг и имена в HUD, плашка «соперник отключился» | `render/Hud.ts` → `drawNetInfo`, `drawNetStatus` |
 | Адрес игрового сервера для клиента | `apps/client/src/net/serverUrl.ts` (или `VITE_GAME_SERVER_URL` в Vercel) |

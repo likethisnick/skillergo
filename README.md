@@ -246,6 +246,9 @@ Online, `apps/server` owns the `World` and steps it at 60 Hz. The client (`Netwo
   of each server state, blending small corrections away;
 - predicts its own gun shots, sword swings and beam too (the server's copies of its bullets are hidden),
   so attacks react on the same frame;
+- anticipates the server's verdicts visually (`Anticipation.ts`): damage numbers, HP bars and kills from its
+  own hits, sword-cut bullets, XP pickups, shield and shotgun show at once and quietly roll back if the server
+  disagrees; enemy bullets are drawn where they will be when its input reaches the server;
 - draws everything else slightly in the past, interpolating between snapshots (60 per second); the delay
   adapts to measured jitter (~35-50 ms on a stable connection, up to 150 ms);
 - releases `GameEvent`s when the drawn time reaches them, except its own hits and level-ups, shown on arrival.
