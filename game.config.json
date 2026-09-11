@@ -9,7 +9,7 @@
 
   "gunDamage": 50,
   "swordDamage": 70,
-  "beamDamagePerSecond": 40,
+  "beamDamagePerSecond": 100,
   "hookDamage": 20,
   "shotgunDamage": 120,
 
@@ -35,7 +35,7 @@
   "nexusHp": 30000,
   "towersPerLane": 2,
   "towerHp": 4000,
-  "towerDamage": 60,
+  "towerDamage": 6,
   "towerAttackSeconds": 1,
   "towerRange": 700,
   "towerBlastRadius": 2560,
