@@ -1,8 +1,9 @@
 import { CONFIG } from '../config';
 import { circleInCone, rayCircleDistance } from '../math/vec2';
 import { attackSpeedMultiplier, weaponDamageMultiplier } from '../stats';
-import { isBossKind, type EntityId, type Player, type TargetKind } from '../types';
+import { isBossKind, type Body, type EntityId, type Player, type TargetKind } from '../types';
 import type { World } from '../world';
+import { shieldCovers } from './abilities';
 import { damageTarget, forEachHostile } from './targets';
 
 const W = CONFIG.weapons;
@@ -81,6 +82,13 @@ function cutProjectiles(world: World, p: Player): void {
   }
 }
 
+/** Beam damage per target since the last floating-number report (server-side bookkeeping). */
+const beamReports = new WeakMap<Player, Map<EntityId, { damage: number; x: number; y: number }>>();
+
+/**
+ * The beam burns through everything hostile along the aim: mobs, players and buildings all
+ * take its damage. Only walls and an enemy shield facing the shooter stop it.
+ */
 function updateBeam(world: World, p: Player, dt: number): void {
   const C = W.beam;
   const beam = p.beam;
@@ -92,62 +100,82 @@ function updateBeam(world: World, p: Player, dt: number): void {
     return;
   }
 
-  // The beam stops at the first wall or enemy along the aim ray.
   const dirX = Math.cos(p.aim);
   const dirY = Math.sin(p.aim);
   const wallT = world.map.raycast(p.x, p.y, p.x + dirX * C.range, p.y + dirY * C.range);
   let reach: number = wallT === null ? C.range : C.range * wallT;
-  let target: { kind: TargetKind; id: EntityId } | null = null;
-  forEachHostile(world, p.team, (kind, id, body) => {
-    const t = rayCircleDistance(p.x, p.y, dirX, dirY, body.x, body.y, body.radius);
+
+  // The nearest shield turned towards us ends the beam at its band.
+  let blocker: EntityId | null = null;
+  for (const v of world.players.values()) {
+    if (!v.alive || v.team === p.team || !shieldCovers(v, p.x, p.y)) continue;
+    const t = rayCircleDistance(p.x, p.y, dirX, dirY, v.x, v.y, v.radius + CONFIG.abilities.shield.offset);
     if (t !== null && t < reach) {
       reach = t;
-      target = { kind, id };
+      blocker = v.id;
     }
+  }
+
+  const hits: { kind: TargetKind; id: EntityId; body: Body }[] = [];
+  forEachHostile(world, p.team, (kind, id, body) => {
+    if (id === blocker) return;
+    const t = rayCircleDistance(p.x, p.y, dirX, dirY, body.x, body.y, body.radius);
+    if (t !== null && t < reach) hits.push({ kind, id, body });
   });
 
   beam.active = true;
   beam.endX = p.x + dirX * reach;
   beam.endY = p.y + dirY * reach;
-  const hit = target as { kind: TargetKind; id: EntityId } | null;
-  beam.targetId = hit ? hit.id : null;
+  beam.targetId = blocker;
   p.lastAttackTime = world.time;
   p.lastAttackAngle = p.aim;
 
-  if (hit) {
-    // For a continuous weapon both damage and attack speed raise the damage per second.
-    const amount = world.server.beamDamagePerSecond * weaponDamageMultiplier(p) * attackSpeedMultiplier(p) * dt;
-    beam.pendingDamage += amount;
-    if (hit.kind === 'enemy') {
-      const enemy = world.enemies.get(hit.id);
-      if (enemy) world.damageEnemy(enemy, amount, p.id, true);
-    } else if (hit.kind === 'player') {
-      const victim = world.players.get(hit.id);
-      if (victim) world.damagePlayer(victim, amount, p.x, p.y, p.id, true);
+  // For a continuous weapon both damage and attack speed raise the damage per second.
+  const amount = world.server.beamDamagePerSecond * weaponDamageMultiplier(p) * attackSpeedMultiplier(p) * dt;
+  let report = beamReports.get(p);
+  if (!report) {
+    report = new Map();
+    beamReports.set(p, report);
+  }
+  for (const { kind, id, body } of hits) {
+    let landed = true;
+    if (kind === 'enemy') {
+      const enemy = world.enemies.get(id);
+      if (!enemy) continue;
+      enemy.hitFlash = Math.max(enemy.hitFlash, 0.05);
+      world.damageEnemy(enemy, amount, p.id, true);
+    } else if (kind === 'player') {
+      const victim = world.players.get(id);
+      landed = !!victim && world.damagePlayer(victim, amount, p.x, p.y, p.id, true) === 'hit';
     } else {
-      damageTarget(world, hit.kind, hit.id, amount, p.id, beam.endX, beam.endY);
+      damageTarget(world, kind, id, amount, p.id, body.x, body.y);
+      continue; // Buildings report their own hits.
+    }
+    if (!landed) continue;
+    const r = report.get(id);
+    if (r) {
+      r.damage += amount;
+      r.x = body.x;
+      r.y = body.y;
+    } else {
+      report.set(id, { damage: amount, x: body.x, y: body.y });
     }
   }
 
   beam.reportTimer -= dt;
   if (beam.reportTimer <= 0) {
     reportBeamDamage(world, p);
+    if (blocker !== null) world.emit({ type: 'blocked', playerId: blocker, x: beam.endX, y: beam.endY });
     beam.reportTimer = C.reportInterval;
   }
 }
 
-/** Beam damage is tiny per tick, so it is shown as one number every `reportInterval`. */
+/** Beam damage is tiny per tick, so every burned target shows one number every `reportInterval`. */
 function reportBeamDamage(world: World, p: Player): void {
-  const beam = p.beam;
-  if (beam.pendingDamage >= 1) {
-    world.emit({
-      type: 'hit',
-      targetId: beam.targetId ?? -1,
-      sourceId: p.id,
-      x: beam.endX,
-      y: beam.endY,
-      damage: Math.round(beam.pendingDamage),
-    });
+  const report = beamReports.get(p);
+  if (!report) return;
+  for (const [id, r] of report) {
+    if (r.damage >= 1) world.emit({ type: 'hit', targetId: id, sourceId: p.id, x: r.x, y: r.y, damage: Math.round(r.damage) });
   }
-  beam.pendingDamage = 0;
+  report.clear();
 }

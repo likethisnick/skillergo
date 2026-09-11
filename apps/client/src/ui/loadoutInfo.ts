@@ -9,7 +9,7 @@ export interface OptionInfo {
 export const WEAPON_INFO: Readonly<Record<WeaponType, OptionInfo>> = {
   gun: { name: 'Gun', description: 'Fires bullets. Hold to auto-fire.' },
   sword: { name: 'Sword', description: 'Wide close-range swing. Cuts bullets, always heals a little.' },
-  beam: { name: 'Beam', description: 'Weak but constant damage. Keep it on the target.' },
+  beam: { name: 'Beam', description: 'Constant damage that burns through everything in line. Walls and shields stop it.' },
 };
 
 export const ABILITY_INFO: Readonly<Record<AbilityType, OptionInfo>> = {

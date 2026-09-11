@@ -92,7 +92,7 @@ A multiplayer server can call `buildRunSummary()` from the shared package and wr
 |---|---|
 | WASD / arrows | Move (works with any keyboard layout) |
 | Shift | Short tumble in the movement direction (towards the cursor when standing still); 1.5 s cooldown, invulnerable while rolling |
-| LMB (hold) | Weapon: gun, sword or beam |
+| LMB (hold) | Weapon: gun, sword (cuts bullets, regenerates HP) or beam (burns through every unit and building in line; walls and shields stop it) |
 | RMB | Ability: hook, shield or shotgun (unlocks at level 2) |
 | 1 / 2 / 3 | Spend an upgrade point: weapon / mobility / ability |
 | Esc | Menu: resume, restart, main menu (the game keeps running) |

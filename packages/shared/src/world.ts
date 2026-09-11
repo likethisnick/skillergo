@@ -279,7 +279,7 @@ export class World implements WorldView {
       attackCooldown: 0,
       lastAttackTime: -Infinity,
       lastAttackAngle: 0,
-      beam: { active: false, endX: x, endY: y, targetId: null, pendingDamage: 0, reportTimer: 0 },
+      beam: { active: false, endX: x, endY: y, targetId: null, reportTimer: 0 },
       abilityUnlocked: this.isTraining || CONFIG.progression.startLevel >= CONFIG.abilities.unlockLevel,
       abilityCooldown: 0,
       abilityCooldownTotal: 1,

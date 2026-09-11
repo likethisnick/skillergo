@@ -172,9 +172,8 @@ export interface Beam {
   active: boolean;
   endX: number;
   endY: number;
+  /** Player whose shield stopped the beam (it burns through everything else); null otherwise. */
   targetId: EntityId | null;
-  /** Damage dealt since the last floating-number report. */
-  pendingDamage: number;
   reportTimer: number;
 }
 

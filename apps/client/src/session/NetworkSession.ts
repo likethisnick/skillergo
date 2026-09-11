@@ -10,6 +10,7 @@ import {
   decodeProjectile,
   rayCircleDistance,
   segmentCircleHit,
+  shieldCovers,
   shotgunCone,
   stepMovement,
   weaponDamageMultiplier,
@@ -603,7 +604,10 @@ export class NetworkSession implements GameSession {
   }
 }
 
-/** Where our beam ends right now: the first wall or hostile body along the aim (as the server does it). */
+/**
+ * Where our beam ends right now (as the server does it): it burns through every unit and
+ * building, and stops only at a wall or at an enemy shield turned towards us.
+ */
 function predictBeam(view: SnapshotView, p: Player, firing: boolean): Player['beam'] {
   if (!firing) return { ...p.beam, active: false, targetId: null };
   const dirX = Math.cos(p.aim);
@@ -612,13 +616,14 @@ function predictBeam(view: SnapshotView, p: Player, firing: boolean): Player['be
   const wallT = view.map.raycast(p.x, p.y, p.x + dirX * range, p.y + dirY * range);
   let reach = wallT === null ? range : range * wallT;
   let targetId: EntityId | null = null;
-  forEachVisibleHostile(view, p.team, (id, body) => {
-    const t = rayCircleDistance(p.x, p.y, dirX, dirY, body.x, body.y, body.radius);
+  for (const v of view.players.values()) {
+    if (!v.alive || v.team === p.team || !shieldCovers(v, p.x, p.y)) continue;
+    const t = rayCircleDistance(p.x, p.y, dirX, dirY, v.x, v.y, v.radius + A.shield.offset);
     if (t !== null && t < reach) {
       reach = t;
-      targetId = id;
+      targetId = v.id;
     }
-  });
+  }
   return { ...p.beam, active: true, endX: p.x + dirX * reach, endY: p.y + dirY * reach, targetId };
 }
 

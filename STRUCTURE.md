@@ -49,7 +49,7 @@
 | Как враги распределяются вокруг игрока | `systems/enemies.ts` → `slotPoint` (у каждого своё место `slotAngle`) и спавн с пустой стороны — `systems/spawner.ts` → `findHiddenSpawnPoint` |
 | Прокачка по кнопкам 1/2/3 | `systems/players.ts` → `applyUpgradeRequests`; начисление очков — `world.ts` → `grantXp`, `upgrade` |
 | Как ранги и баффы влияют на урон, скорость атаки, скорость, рывок | `stats.ts` |
-| Оружие: пушка, меч, луч | `systems/weapons.ts` → `fireGun`, `swingSword`, `updateBeam` |
+| Оружие: пушка, меч, луч (прожигает насквозь всех на линии, стоп — стена или щит) | `systems/weapons.ts` → `fireGun`, `swingSword`, `updateBeam` |
 | Меч срезает пули во время взмаха (кроме атак боссов) | `systems/weapons.ts` → `cutProjectiles` |
 | Способности: щит, дробь | `systems/abilities.ts` → `tryUseAbility`, `fireShotgun`, `shieldCovers` |
 | Крюк | `systems/hook.ts` |
