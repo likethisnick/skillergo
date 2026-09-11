@@ -20,6 +20,8 @@ export interface ServerConfig {
 
   gunDamage: number;
   swordDamage: number;
+  /** Sword owners regenerate this % of max HP per second, even in combat. */
+  swordRegenPercent: number;
   beamDamagePerSecond: number;
   hookDamage: number;
   shotgunDamage: number;
@@ -99,6 +101,7 @@ const FALLBACK: ServerConfig = {
   obstacleDensity: 0.2,
   gunDamage: 50,
   swordDamage: 70,
+  swordRegenPercent: 1.5,
   beamDamagePerSecond: 100,
   hookDamage: 20,
   shotgunDamage: 120,

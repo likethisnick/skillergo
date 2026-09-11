@@ -9,6 +9,7 @@
 
   "gunDamage": 50,
   "swordDamage": 70,
+  "swordRegenPercent": 1.5,
   "beamDamagePerSecond": 100,
   "hookDamage": 20,
   "shotgunDamage": 120,

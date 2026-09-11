@@ -134,7 +134,8 @@ function move(env: MovementEnv, p: Player, dt: number): void {
 
 function regenerate(world: World, p: Player, dt: number): void {
   const C = CONFIG.player;
-  if (p.hp < p.maxHp && world.time - p.lastDamageTime >= C.regenDelay) {
-    p.hp = Math.min(p.maxHp, p.hp + C.regenPerSecond * dt);
-  }
+  let perSecond = world.time - p.lastDamageTime >= C.regenDelay ? C.regenPerSecond : 0;
+  // Melee compensation: the sword heals a little all the time, even in the middle of a fight.
+  if (p.weapon === 'sword') perSecond += (p.maxHp * world.server.swordRegenPercent) / 100;
+  if (perSecond > 0 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + perSecond * dt);
 }

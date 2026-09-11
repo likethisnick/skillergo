@@ -192,6 +192,11 @@ export class Effects {
         case 'blocked':
           this.rings.push({ x: ev.x, y: ev.y, color: '#4a90e2', radius: 38, age: 0, life: 0.3 });
           break;
+        case 'bulletCut':
+          // A quick steel-colored spark where the blade met the bullet.
+          this.rings.push({ x: ev.x, y: ev.y, color: '#6f7a84', radius: 26, age: 0, life: 0.22 });
+          this.rings.push({ x: ev.x, y: ev.y, color: '#ffd166', radius: 14, age: 0, life: 0.16 });
+          break;
         case 'wallHit':
           this.rings.push({ x: ev.x, y: ev.y, color: '#9aa4ad', radius: 14, age: 0, life: 0.2 });
           break;

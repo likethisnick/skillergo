@@ -38,6 +38,7 @@ number is ignored (the default is used). Restart `npm run dev` after editing (Vi
 | `playerSpeed`, `dashCooldown`, `dashDistance` | Player movement speed; seconds between dashes and how far one dash goes |
 | `obstacleDensity` | Share of the world covered by tetromino walls (0.2 = 20%) |
 | `gunDamage`, `swordDamage`, `beamDamagePerSecond` | Base weapon damage |
+| `swordRegenPercent` | Sword owners regenerate this % of max HP per second, even in combat (the sword also cuts bullets during a swing) |
 | `hookDamage`, `shotgunDamage` | Base ability damage (the shield deals none) |
 | `enemySpeed` + `<kind>SpeedMultiplier` | Base enemy speed; each enemy type is a multiplier of it (`wanderSpeedMultiplier` = idle walking) |
 | `bulletSpeed` + `<kind>BulletSpeedMultiplier` | Base bullet speed; the player's gun and each enemy bullet type are multipliers of it |

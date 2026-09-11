@@ -8,7 +8,7 @@ export interface OptionInfo {
 /** Display names and short descriptions for the loadout picker and HUD. */
 export const WEAPON_INFO: Readonly<Record<WeaponType, OptionInfo>> = {
   gun: { name: 'Gun', description: 'Fires bullets. Hold to auto-fire.' },
-  sword: { name: 'Sword', description: 'Wide close-range swing. Hits everything in the arc.' },
+  sword: { name: 'Sword', description: 'Wide close-range swing. Cuts bullets, always heals a little.' },
   beam: { name: 'Beam', description: 'Weak but constant damage. Keep it on the target.' },
 };
 

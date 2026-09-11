@@ -1,7 +1,7 @@
 import { CONFIG } from '../config';
 import { circleInCone, rayCircleDistance } from '../math/vec2';
 import { attackSpeedMultiplier, weaponDamageMultiplier } from '../stats';
-import type { EntityId, Player, TargetKind } from '../types';
+import { isBossKind, type EntityId, type Player, type TargetKind } from '../types';
 import type { World } from '../world';
 import { damageTarget, forEachHostile } from './targets';
 
@@ -18,6 +18,7 @@ export function updateWeapon(world: World, p: Player, dt: number): void {
       break;
     case 'sword':
       if (p.input.fire && p.attackCooldown <= EPS) swingSword(world, p);
+      if (world.time - p.lastAttackTime < W.sword.swingTime) cutProjectiles(world, p);
       break;
     case 'beam':
       updateBeam(world, p, dt);
@@ -63,6 +64,21 @@ function swingSword(world: World, p: Player): void {
   });
   for (const [kind, id] of hits) damageTarget(world, kind, id, damage, p.id, p.x, p.y);
   markAttack(world, p, C.cooldown / attackSpeedMultiplier(p));
+}
+
+/**
+ * While the blade sweeps, hostile bullets inside the swing arc are cut and vanish.
+ * Boss attacks are too heavy to cut.
+ */
+function cutProjectiles(world: World, p: Player): void {
+  const C = W.sword;
+  for (const pr of world.projectiles.values()) {
+    if (pr.team === p.team || (pr.source !== 'player' && isBossKind(pr.source))) continue;
+    if (!circleInCone(p.x, p.y, p.lastAttackAngle, C.arc, C.range, pr.x, pr.y, pr.radius)) continue;
+    if (!world.map.lineOfSight(p.x, p.y, pr.x, pr.y)) continue;
+    world.projectiles.delete(pr.id);
+    world.emit({ type: 'bulletCut', playerId: p.id, x: pr.x, y: pr.y });
+  }
 }
 
 function updateBeam(world: World, p: Player, dt: number): void {

@@ -357,6 +357,8 @@ export type GameEvent =
   | { type: 'playerHit'; playerId: EntityId; x: number; y: number; damage: number }
   | { type: 'playerDied'; playerId: EntityId; level: number }
   | { type: 'blocked'; playerId: EntityId; x: number; y: number }
+  /** A sword swing cut a bullet. */
+  | { type: 'bulletCut'; playerId: EntityId; x: number; y: number }
   | { type: 'shotgun'; playerId: EntityId; x: number; y: number; angle: number; range: number; arc: number }
   | { type: 'upgrade'; playerId: EntityId; stat: UpgradeStat; rank: number }
   | { type: 'powerUp'; playerId: EntityId; buff: 'damage' | 'attackSpeed' | 'speed' | 'wipe' }

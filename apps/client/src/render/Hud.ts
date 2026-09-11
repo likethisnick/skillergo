@@ -397,8 +397,10 @@ function weaponStatLine(me: Readonly<Player>, server: Readonly<ServerConfig>): s
   switch (me.weapon) {
     case 'gun':
       return `${name} · ${Math.round(server.gunDamage * dmg)} dmg · ${(speed / W.gun.cooldown).toFixed(1)}/s`;
-    case 'sword':
-      return `${name} · ${Math.round(server.swordDamage * dmg)} dmg · ${(speed / W.sword.cooldown).toFixed(1)}/s`;
+    case 'sword': {
+      const regen = (me.maxHp * server.swordRegenPercent) / 100;
+      return `${name} · ${Math.round(server.swordDamage * dmg)} dmg · ${(speed / W.sword.cooldown).toFixed(1)}/s · +${regen.toFixed(1)} HP/s`;
+    }
     case 'beam':
       return `${name} · ${Math.round(server.beamDamagePerSecond * dmg * speed)} dmg/s`;
   }

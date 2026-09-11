@@ -41,7 +41,7 @@
 
 | Хочу поменять | Файл → функция |
 |---|---|
-| Движение игрока, рывок, реген | `systems/players.ts` → `move`, `handleDashRequest`, `regenerate` |
+| Движение игрока, рывок, реген (и постоянный реген с мечом — `swordRegenPercent` в конфиге) | `systems/players.ts` → `move`, `handleDashRequest`, `regenerate` |
 | +30% HP за уровень | `world.ts` → `grantXp` (доля — `config.ts` → `progression.hpPerLevel`) |
 | Стены: генерация, плотность, форма фигур | `map.ts` → `generate`, `TETROMINOES` (плотность — `server.config.ts` → `obstacleDensity`) |
 | Столкновения со стенами, лучи, «видит ли» | `map.ts` → `resolveCircle`, `raycast`, `lineOfSight` |
@@ -50,6 +50,7 @@
 | Прокачка по кнопкам 1/2/3 | `systems/players.ts` → `applyUpgradeRequests`; начисление очков — `world.ts` → `grantXp`, `upgrade` |
 | Как ранги и баффы влияют на урон, скорость атаки, скорость, рывок | `stats.ts` |
 | Оружие: пушка, меч, луч | `systems/weapons.ts` → `fireGun`, `swingSword`, `updateBeam` |
+| Меч срезает пули во время взмаха (кроме атак боссов) | `systems/weapons.ts` → `cutProjectiles` |
 | Способности: щит, дробь | `systems/abilities.ts` → `tryUseAbility`, `fireShotgun`, `shieldCovers` |
 | Крюк | `systems/hook.ts` |
 | Движение и стрельба врагов | `systems/enemies.ts`: `updateShooter` (обычный стрелок, снайпер, Колосс), `updateRusher`, `updateDuelist`, `updateBlademaster` |
@@ -102,6 +103,8 @@
 | Кто играет за красных в Versus AI, его оружие | `session/LocalSession.ts` (бот с `bot: true`) |
 | Клавиши и мышь | `input/InputController.ts` (`DIRECTION_KEYS`, `DASH_KEYS`, `UPGRADE_KEYS`) |
 | Как рисуются игрок, враги, пули, орбы | `render/Renderer.ts` → `drawPlayer`, `drawEnemy`, `drawEnemyWeapon`, `drawProjectile`, `drawOrb` |
+| Плашка игрока: рамка HP, значок уровня слева, имя | `render/Renderer.ts` → `drawPlayerPlate` |
+| Какие шарики опыта видны (свои дропы, которые не подобрать, скрыты) | `render/Renderer.ts` → `render` (цикл по `view.orbs`) |
 | Как рисуются стены и их цвета | `render/Renderer.ts` → `drawWalls`, `WALL_COLORS` |
 | Цвета | `render/Renderer.ts` → `COLORS`; цвета команд, игроков и мобов — `render/teams.ts` (`TEAM_COLORS`, `PLAYER_STYLE`, `RED_MOBS`, `BLUE_MOBS`) |
 | Карта Versus: подсветка половин, линии, базы, нексус, башни и их радиус | `render/Arena.ts` → `drawArenaGround`, `drawNexus`, `drawTower` |

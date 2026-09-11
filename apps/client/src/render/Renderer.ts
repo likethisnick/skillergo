@@ -105,7 +105,10 @@ export class Renderer {
     this.drawWalls(view);
     for (const nexus of view.nexuses.values()) drawNexus(ctx, nexus, view);
     for (const tower of view.towers.values()) drawTower(ctx, tower, view, me);
-    for (const orb of view.orbs.values()) this.drawOrb(orb, view.time);
+    for (const orb of view.orbs.values()) {
+      // Drops of our own units are for the enemy: we cannot pick them up, so we do not see them.
+      if (orb.denyTeam !== this.myTeam) this.drawOrb(orb, view.time);
+    }
     for (const enemy of view.enemies.values()) this.drawEnemyTelegraph(enemy, view.time);
     for (const enemy of view.enemies.values()) this.drawEnemy(enemy, view.time, view.server.guardianAuraRadius);
     for (const player of view.players.values()) this.drawPlayerUnderlay(player, view.time);
@@ -247,20 +250,99 @@ export class Renderer {
     ctx.restore();
 
     if (!p.alive) return;
-    const barY = p.y - p.radius - 16;
+    // Name tag: the player's name online, "AI" for bots.
+    const name = this.net?.names.get(p.id) ?? (p.isBot ? 'AI' : null);
+    this.drawPlayerPlate(p, style, name);
+  }
+
+  /**
+   * Player health plate: a framed capsule in the team color with a level badge on the left,
+   * a tick every 100 HP and the HP number inside.
+   */
+  private drawPlayerPlate(p: Readonly<Player>, style: Style, name: string | null): void {
+    const { ctx } = this;
+    const barW = 64;
+    const barH = 12;
+    const badgeR = 12;
+    const overlap = 7;
+    const left = p.x - (badgeR * 2 + barW - overlap) / 2;
+    const barX = left + badgeR * 2 - overlap;
+    const barY = p.y - p.radius - 24;
+    const cy = barY + barH / 2;
+    const ratio = Math.max(0, Math.min(1, p.hp / p.maxHp));
     const hpColor = p.team === this.myTeam ? COLORS.hpPlayer : COLORS.hpEnemy;
-    this.drawHpBar(p.x, barY, 60, p.hp / p.maxHp, hpColor, Math.ceil(p.hp));
-    if (this.versus) {
-      // Name tag: level for everyone, "AI" for bots, the player's name online.
-      const name = this.net?.names.get(p.id);
-      ctx.save();
+
+    ctx.save();
+    // Frame.
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = style.stroke;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.roundRect(barX - 3, barY - 3, barW + 6, barH + 6, (barH + 6) / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Track, health and a glossy top half.
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW, barH, barH / 2);
+    ctx.fillStyle = '#e8ecf0';
+    ctx.fill();
+    if (ratio > 0) {
+      const w = Math.max(barH, barW * ratio);
+      ctx.fillStyle = hpColor;
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, w, barH, barH / 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+      ctx.beginPath();
+      ctx.roundRect(barX + 2, barY + 1.5, Math.max(0, w - 4), barH / 2 - 1.5, 3);
+      ctx.fill();
+    }
+    // A thin notch every 100 HP shows how tanky someone is at a glance.
+    const notches = Math.floor((p.maxHp - 1) / 100);
+    if (notches > 0 && notches <= 15) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 1; i <= notches; i++) {
+        const nx = barX + (barW * i * 100) / p.maxHp;
+        ctx.moveTo(nx, barY + 2);
+        ctx.lineTo(nx, barY + barH - 2);
+      }
+      ctx.stroke();
+    }
+    // HP number inside the bar.
+    ctx.font = 'bold 10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    const hpText = `${Math.ceil(p.hp)}`;
+    ctx.strokeText(hpText, barX + barW / 2 + 4, cy + 0.5);
+    ctx.fillStyle = '#2b2f33';
+    ctx.fillText(hpText, barX + barW / 2 + 4, cy + 0.5);
+
+    // Level badge.
+    const bx = left + badgeR;
+    ctx.beginPath();
+    ctx.arc(bx, cy, badgeR, 0, Math.PI * 2);
+    ctx.fillStyle = style.stroke;
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${p.level >= 10 ? 11 : 13}px system-ui, sans-serif`;
+    ctx.fillText(`${p.level}`, bx, cy + 0.5);
+
+    if (name) {
       ctx.fillStyle = style.stroke;
       ctx.font = 'bold 13px system-ui, sans-serif';
-      ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(name ? `${name} · Lv ${p.level}` : p.isBot ? `AI · Lv ${p.level}` : `Lv ${p.level}`, p.x, barY - 20);
-      ctx.restore();
+      ctx.fillText(name, p.x, barY - 7);
     }
+    ctx.restore();
   }
 
   private drawWeapon(p: Readonly<Player>, time: number, style: Style): void {
