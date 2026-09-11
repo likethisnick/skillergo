@@ -115,7 +115,7 @@ const FALLBACK: ServerConfig = {
   nexusHp: 30000,
   towersPerLane: 2,
   towerHp: 4000,
-  towerDamage: 6,
+  towerDamage: 15,
   towerAttackSeconds: 1,
   towerRange: 700,
   towerBlastRadius: 2560,

@@ -20,7 +20,7 @@ type BotState = 'push' | 'defend' | 'retreat' | 'siege' | 'raid';
 
 /** Engage and shooting ranges per weapon. */
 const WEAPON_RANGE = {
-  gun: { keep: 520, fire: 820 },
+  gun: { keep: 430, fire: 540 },
   beam: { keep: 400, fire: 500 },
   sword: { keep: 80, fire: 120 },
 } as const;

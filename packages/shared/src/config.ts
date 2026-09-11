@@ -130,7 +130,7 @@ export const CONFIG = {
     gun: {
       cooldown: 0.25,
       projectileRadius: 6,
-      range: 900,
+      range: 560,
     },
     sword: {
       cooldown: 0.45,
