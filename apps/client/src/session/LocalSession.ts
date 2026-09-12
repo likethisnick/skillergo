@@ -1,7 +1,6 @@
 import {
-  ABILITY_TYPES,
+  CLASS_IDS,
   CONFIG,
-  WEAPON_TYPES,
   World,
   buildRunSummary,
   type EnemyKind,
@@ -36,9 +35,9 @@ export class LocalSession implements GameSession {
     this.localPlayerId = this.world.addPlayer(loadout, { team: 'blue' }).id;
     if (mode === 'training') this.training = this.createTrainingControls();
     if (mode === 'versus') {
-      // The AI opponent gets random gear. Later a network player takes this slot.
-      const pick = <T,>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
-      this.world.addPlayer({ weapon: pick(WEAPON_TYPES), ability: pick(ABILITY_TYPES) }, { team: 'red', bot: true });
+      // The AI opponent picks a random class. Later a network player takes this slot.
+      const classId = CLASS_IDS[Math.floor(Math.random() * CLASS_IDS.length)];
+      this.world.addPlayer({ classId }, { team: 'red', bot: true });
     }
   }
 

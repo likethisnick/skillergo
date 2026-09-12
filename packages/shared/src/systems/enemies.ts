@@ -2,7 +2,7 @@ import { CONFIG } from '../config';
 import { circleInCone, circlesOverlap, distance, distanceSq, length } from '../math/vec2';
 import { lanePath, nearestLane, territoryAt } from '../arena';
 import { otherTeam, type Body, type Enemy, type EntityId, type TargetKind } from '../types';
-import { damageTarget, forEachHostile, getTarget, isBuilding } from './targets';
+import { canBeTargeted, damageTarget, forEachHostile, getTarget, isBuilding } from './targets';
 import type { World } from '../world';
 
 const E = CONFIG.enemies;
@@ -56,6 +56,7 @@ export function updateEnemies(world: World, dt: number): void {
     e.hitFlash = Math.max(0, e.hitFlash - dt);
     e.attackCooldown = Math.max(0, e.attackCooldown - dt);
     e.contactCooldown = Math.max(0, e.contactCooldown - dt);
+    e.rallyTimer = Math.max(0, e.rallyTimer - dt);
 
     if (e.kind === 'dummy') {
       if (world.time - e.lastHitTime > CONFIG.training.dummy.regenDelay) e.hp = e.maxHp;
@@ -119,7 +120,7 @@ interface Pick {
 function chooseTarget(world: World, e: Enemy): Pick | null {
   // Survival and training: enemies only hunt players (bosses always know where they are).
   if (!world.isVersus) {
-    const p = world.nearestPlayer(e.x, e.y, e.boss ? Infinity : E.aggroRange, e.team);
+    const p = world.nearestPlayer(e.x, e.y, e.boss ? Infinity : E.aggroRange, e.team, true);
     return p ? { kind: 'player', id: p.id, body: p } : null;
   }
 
@@ -135,7 +136,7 @@ function chooseTarget(world: World, e: Enemy): Pick | null {
   let intruder: Pick | null = null;
   let best = Infinity;
   for (const p of world.players.values()) {
-    if (!p.alive || p.team === e.team || territoryAt(arena, p.x, p.y) !== e.team) continue;
+    if (!p.alive || p.cloakTimer > 0 || p.team === e.team || territoryAt(arena, p.x, p.y) !== e.team) continue;
     const radius = e.role === 'defender' && e.escortId === p.id
       ? Infinity
       : Math.min(V.defendRadiusMax, V.defendRadius + V.defendRadiusGrowth * p.intrusionTime);
@@ -179,7 +180,7 @@ function nearestHostile(world: World, e: Enemy, accept: (body: Body) => boolean)
   let pick: Pick | null = null;
   let best = Infinity;
   forEachHostile(world, e.team, (kind, id, body) => {
-    if (!accept(body)) return;
+    if (!accept(body) || !canBeTargeted(world, kind, id)) return;
     const d = distanceSq(e.x, e.y, body.x, body.y);
     if (d < best) {
       best = d;
@@ -352,7 +353,8 @@ function moveTowards(
 
 function speedOf(world: World, e: Enemy): number {
   const kind: MovingKind = e.kind === 'dummy' ? 'wander' : e.kind;
-  return enemySpeed(world, kind);
+  const rally = e.rallyTimer > 0 ? 1 + CONFIG.abilities.rally.speedBonus : 1;
+  return enemySpeed(world, kind) * rally;
 }
 
 function accelerationOf(e: Enemy): number {
@@ -364,6 +366,8 @@ function accelerationOf(e: Enemy): number {
 function mobDamage(world: World, e: Enemy, base: number): number {
   let damage = base * world.mods.enemyDamage;
   if (world.arena && territoryAt(world.arena, e.x, e.y) === e.team) damage *= 1 + world.server.homeDefenseBonus;
+  // A summoner's rally makes his mobs hit harder for a while.
+  if (e.rallyTimer > 0) damage *= 1 + CONFIG.abilities.rally.damageBonus;
   return damage;
 }
 
@@ -460,14 +464,14 @@ function updateShooter(world: World, e: Enemy, kind: ShooterKind, C: ShooterConf
   const dist = length(target.x - e.x, target.y - e.y) || 1;
   // Snipers reach 1.5x farther: they may shoot from just outside the screen (the laser shows where).
   const reach = kind === 'sniper' ? SNIPER_SCREEN_REACH : 1;
-  const visible = isOnPlayerScreen(e, target, reach);
+  const visible = isOnPlayerScreen(world, e, target, reach);
   const speed = enemySpeed(world, kind);
 
   // Every shooter heads for its own spot around the player and slowly orbits it,
   // so a crowd surrounds the player instead of trailing behind him in one clump.
   e.slotAngle += e.strafeDir * E.slotDrift * dt;
   maybeFlipStrafe(world, e, dt);
-  const preferred = preferredDistance(e, C.preferredDistance * e.distanceScale, Math.cos(e.slotAngle), Math.sin(e.slotAngle), reach);
+  const preferred = preferredDistance(world, e, C.preferredDistance * e.distanceScale, Math.cos(e.slotAngle), Math.sin(e.slotAngle), reach);
   const goal = slotPoint(world, e, target, preferred);
   const toGoal = length(goal.x - e.x, goal.y - e.y);
 
@@ -495,7 +499,7 @@ function updateDuelist(world: World, e: Enemy, target: Body, dt: number): void {
   const dist = length(dx, dy) || 1;
   const dirX = dx / dist;
   const dirY = dy / dist;
-  const visible = isOnPlayerScreen(e, target);
+  const visible = isOnPlayerScreen(world, e, target);
 
   if (e.burstTimer > 0) {
     e.burstTimer -= dt;
@@ -511,7 +515,7 @@ function updateDuelist(world: World, e: Enemy, target: Body, dt: number): void {
     e.wanderTimer = Math.min(e.wanderTimer, visible ? C.burstPauseMax : 0.05) - dt;
     if (e.wanderTimer <= 0 && e.windup <= 0) {
       const side = world.rng.next() < 0.5 ? -1 : 1;
-      const preferred = preferredDistance(e, C.preferredDistance, dirX, dirY);
+      const preferred = preferredDistance(world, e, C.preferredDistance, dirX, dirY);
       let radial = 0;
       if (!visible) radial = 2;
       else if (dist > preferred + 60) radial = 0.8;
@@ -750,9 +754,9 @@ function steer(e: Enemy, desiredX: number, desiredY: number, acceleration: numbe
  * The screen is wider than tall, so a fixed preferred distance would push shooters
  * off-screen vertically. Clamp it to the distance to the screen edge in this direction.
  */
-function preferredDistance(e: Enemy, preferred: number, dirX: number, dirY: number, reach = 1): number {
-  const halfW = (CONFIG.view.width / 2) * reach - e.radius - 40;
-  const halfH = (CONFIG.view.height / 2) * reach - e.radius - 40;
+function preferredDistance(world: World, e: Enemy, preferred: number, dirX: number, dirY: number, reach = 1): number {
+  const halfW = (world.view.width / 2) * reach - e.radius - 40;
+  const halfH = (world.view.height / 2) * reach - e.radius - 40;
   const ax = Math.abs(dirX);
   const ay = Math.abs(dirY);
   const toEdge = Math.min(ax > 1e-6 ? halfW / ax : Infinity, ay > 1e-6 ? halfH / ay : Infinity);
@@ -760,10 +764,10 @@ function preferredDistance(e: Enemy, preferred: number, dirX: number, dirY: numb
 }
 
 /** `reach` > 1 widens the screen (snipers may fire from a bit outside it). */
-function isOnPlayerScreen(e: Enemy, p: Body, reach = 1): boolean {
+function isOnPlayerScreen(world: World, e: Enemy, p: Body, reach = 1): boolean {
   return (
-    Math.abs(e.x - p.x) <= (CONFIG.view.width / 2) * reach - e.radius &&
-    Math.abs(e.y - p.y) <= (CONFIG.view.height / 2) * reach - e.radius
+    Math.abs(e.x - p.x) <= (world.view.width / 2) * reach - e.radius &&
+    Math.abs(e.y - p.y) <= (world.view.height / 2) * reach - e.radius
   );
 }
 

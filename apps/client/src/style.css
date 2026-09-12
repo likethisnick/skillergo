@@ -215,6 +215,23 @@ body {
   font-weight: 700;
 }
 
+.option-icons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.option-kit {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4a90e2;
+}
+
+.tp-kit {
+  font-size: 12px;
+  color: #555;
+}
+
 .option-desc {
   font-size: 12px;
   color: #888;
@@ -291,10 +308,6 @@ body {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
-}
-
-.menu-button[hidden] {
-  display: none;
 }
 
 .menu-button:hover {
@@ -438,134 +451,4 @@ body {
 
 .tp-wide {
   width: 100%;
-}
-
-/* ------------------------------------------------------------- online */
-
-.online-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  width: 250px;
-  margin-top: 6px;
-  padding: 14px 16px 10px;
-  border: 2px solid #e3ecf7;
-  border-radius: 16px;
-  background: #fbfdff;
-  text-align: center;
-}
-
-.online-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #555;
-}
-
-.online-note {
-  margin: 0;
-  font-size: 13px;
-  color: #777;
-}
-
-.online-warn {
-  color: #c0392b;
-}
-
-.online-footer {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: #aaa;
-}
-
-.online-profile {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.online-name {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 16px;
-  font-weight: 700;
-  color: #333;
-}
-
-.online-rating {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: #fff3d6;
-  color: #a86b00;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.online-link {
-  color: #2f6fb8;
-}
-
-.online-provider {
-  width: 100%;
-}
-
-.online-guest {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-}
-
-.online-input {
-  width: 100%;
-  padding: 8px 12px;
-  border: 2px solid #d6e4f5;
-  border-radius: 999px;
-  font: inherit;
-  font-size: 14px;
-  text-align: center;
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-.online-input:focus {
-  outline: none;
-  border-color: #4a90e2;
-}
-
-.online-search {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.online-timer {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  color: #2f6fb8;
-}
-
-.find-button {
-  width: 100%;
-  padding: 11px 18px;
-  border: none;
-  border-radius: 999px;
-  background: #2e9e5b;
-  color: #fff;
-  font: inherit;
-  font-size: 16px;
-  font-weight: 800;
-  cursor: pointer;
-  box-shadow: 0 6px 18px rgba(46, 158, 91, 0.3);
-  transition: transform 0.15s ease;
-}
-
-.find-button:hover {
-  transform: scale(1.04);
 }

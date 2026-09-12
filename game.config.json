@@ -1,6 +1,6 @@
 {
   "difficultyGrowthRate": 1,
-  "xpMultiplier": 5,
+  "xpMultiplier": 15,
 
   "playerSpeed": 280,
   "dashCooldown": 1.5,
@@ -9,10 +9,13 @@
 
   "gunDamage": 50,
   "swordDamage": 70,
-  "swordRegenPercent": 1.5,
-  "beamDamagePerSecond": 100,
+  "beamDamagePerSecond": 40,
   "hookDamage": 20,
   "shotgunDamage": 120,
+  "rifleDamage": 240,
+  "fireballDamage": 90,
+  "blinkDamage": 110,
+  "whirlwindDamage": 140,
 
   "enemySpeed": 100,
   "gruntSpeedMultiplier": 1.1,
@@ -36,7 +39,7 @@
   "nexusHp": 30000,
   "towersPerLane": 2,
   "towerHp": 4000,
-  "towerDamage": 15,
+  "towerDamage": 60,
   "towerAttackSeconds": 1,
   "towerRange": 700,
   "towerBlastRadius": 2560,
@@ -56,10 +59,6 @@
   "playerKillXpPerLevel": 8,
   "versusLevelXp": 1500,
   "versusLevelXpStep": 400,
-
-  "startRating": 1300,
-  "ratingWin": 20,
-  "ratingLoss": 20,
 
   "historyEnabled": true,
   "historyDir": "logs",

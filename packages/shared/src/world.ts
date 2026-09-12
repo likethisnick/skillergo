@@ -1,6 +1,6 @@
 import { createArenaLayout, isKeptClear, type ArenaLayout } from './arena';
+import { classInfo } from './classes';
 import { BotBrain } from './ai/bot';
-import { resolveObstacles } from './collision';
 import { CONFIG } from './config';
 import {
   DEFAULT_SETTINGS,
@@ -13,7 +13,7 @@ import {
 import { GameMap, type FlowField } from './map';
 import { Rng } from './math/rng';
 import { distanceSq } from './math/vec2';
-import { versusXpToNext, xpToNextLevel } from './progression';
+import { xpToNextLevel } from './progression';
 import { resolveServerConfig, type ServerConfig } from './server.config';
 import { shieldCovers, updateAbilities } from './systems/abilities';
 import { setupArena, updateArena } from './systems/arena';
@@ -99,6 +99,9 @@ export interface ProjectileSpec {
   /** Sniper shots also fly through buildings, except `aimedAt`. */
   piercesBuildings?: boolean;
   aimedAt?: EntityId | null;
+  /** Fireball: area damage where the shot stops. */
+  blastRadius?: number;
+  blastDamage?: number;
 }
 
 /**
@@ -182,6 +185,12 @@ export class World implements WorldView {
     return this.mods.intensity;
   }
 
+  /** What a standard player sees. Versus is played on a far bigger map, so the camera pulls back. */
+  get view(): { width: number; height: number } {
+    const scale = this.isVersus ? CONFIG.versusViewScale : 1;
+    return { width: CONFIG.view.width * scale, height: CONFIG.view.height * scale };
+  }
+
   get isTraining(): boolean {
     return this.mode === 'training';
   }
@@ -191,7 +200,7 @@ export class World implements WorldView {
   }
 
   xpToNext(level: number): number {
-    if (this.isVersus) return versusXpToNext(this.server, level);
+    if (this.isVersus) return this.server.versusLevelXp + this.server.versusLevelXpStep * (level - 1);
     return xpToNextLevel(level);
   }
 
@@ -242,6 +251,7 @@ export class World implements WorldView {
 
   addPlayer(loadout: Loadout = DEFAULT_LOADOUT, options: PlayerOptions = {}): Player {
     const team = options.team ?? 'blue';
+    const klass = classInfo(loadout.classId);
     const spawn = this.spawnPointOf(team);
     const x = options.x ?? spawn.x;
     const y = options.y ?? spawn.y;
@@ -274,17 +284,23 @@ export class World implements WorldView {
       killStats: { regular: 0, elite: 0, boss: 0, players: 0, towers: 0, byKind: {} },
       upgradeRequests: { weapon: 0, mobility: 0, ability: 0 },
       buffs: { damage: 0, attackSpeed: 0, speed: 0 },
-      weapon: loadout.weapon,
-      ability: loadout.ability,
+      classId: klass.id,
+      weapon: klass.weapon,
+      ability: klass.ability,
+      viewScale: klass.viewScale,
       attackCooldown: 0,
       lastAttackTime: -Infinity,
       lastAttackAngle: 0,
-      beam: { active: false, endX: x, endY: y, targetId: null, reportTimer: 0 },
+      beam: { active: false, endX: x, endY: y, targetId: null, pendingDamage: 0, reportTimer: 0 },
       abilityUnlocked: this.isTraining || CONFIG.progression.startLevel >= CONFIG.abilities.unlockLevel,
       abilityCooldown: 0,
       abilityCooldownTotal: 1,
       shieldTimer: 0,
       shieldArc: CONFIG.abilities.shield.arc,
+      cloakTimer: 0,
+      rallyX: x,
+      rallyY: y,
+      whirlTimer: 0,
       hook: {
         state: 'idle', x, y, dirX: 0, dirY: 0, traveled: 0, targetId: null,
         range: H.range, speed: H.speed, pullSpeed: H.pullSpeed, damage: 0, pullTime: 0,
@@ -355,11 +371,15 @@ export class World implements WorldView {
   }
 
   /** Nearest alive player, optionally within `maxDistance` and not of `exceptTeam`. */
-  nearestPlayer(x: number, y: number, maxDistance = Infinity, exceptTeam: TeamId | null = null): Player | undefined {
+  nearestPlayer(
+    x: number, y: number, maxDistance = Infinity,
+    exceptTeam: TeamId | null = null, visibleOnly = false,
+  ): Player | undefined {
     let best: Player | undefined;
     let bestSq = maxDistance * maxDistance;
     for (const p of this.players.values()) {
       if (!p.alive || p.team === exceptTeam) continue;
+      if (visibleOnly && p.cloakTimer > 0) continue;
       const d = distanceSq(x, y, p.x, p.y);
       if (d <= bestSq) {
         best = p;
@@ -391,7 +411,21 @@ export class World implements WorldView {
 
   /** Pushes a circle out of walls and buildings. */
   resolveObstacles(x: number, y: number, radius: number): { x: number; y: number } {
-    return resolveObstacles(this.map, [this.nexuses.values(), this.towers.values()], x, y, radius);
+    const resolved = this.map.resolveCircle(x, y, radius);
+    const push = (b: { x: number; y: number; radius: number }): void => {
+      const dx = resolved.x - b.x;
+      const dy = resolved.y - b.y;
+      const min = b.radius + radius;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < min * min) {
+        const d = Math.sqrt(distSq) || 1;
+        resolved.x = b.x + (dx / d) * min;
+        resolved.y = b.y + (dy / d) * min;
+      }
+    };
+    for (const n of this.nexuses.values()) push(n);
+    for (const t of this.towers.values()) push(t);
+    return resolved;
   }
 
   /** Nearest wall-free spot for a circle, searching outwards from (x, y). */
@@ -445,6 +479,8 @@ export class World implements WorldView {
   private killPlayer(player: Player): void {
     player.alive = false;
     player.shieldTimer = 0;
+    player.cloakTimer = 0;
+    player.whirlTimer = 0;
     player.dashTimer = 0;
     player.beam.active = false;
     player.buffs = { damage: 0, attackSpeed: 0, speed: 0 };
@@ -528,6 +564,7 @@ export class World implements WorldView {
       strafeDir: this.rng.next() < 0.5 ? -1 : 1,
       slotAngle: fromAngle + this.rng.range(-0.7, 0.7),
       distanceScale: this.rng.range(jitterMin, jitterMax),
+      rallyTimer: 0,
       age: 0,
       hitFlash: 0,
       pulledBy: null,
@@ -770,6 +807,8 @@ export class World implements WorldView {
       ignoresWalls: spec.ignoresWalls ?? false,
       piercesBuildings: spec.piercesBuildings ?? false,
       aimedAt: spec.aimedAt ?? null,
+      blastRadius: spec.blastRadius ?? 0,
+      blastDamage: spec.blastDamage ?? 0,
     };
     this.projectiles.set(projectile.id, projectile);
     return projectile;
@@ -800,14 +839,20 @@ export class World implements WorldView {
 
   // ------------------------------------------------------------ training room
 
+  /** Training room: switch the class on the fly. */
   setLoadout(playerId: EntityId, loadout: Loadout): void {
     const p = this.players.get(playerId);
     if (!p) return;
+    const klass = classInfo(loadout.classId);
     releaseHook(this, p);
     p.shieldTimer = 0;
+    p.cloakTimer = 0;
+    p.whirlTimer = 0;
     p.beam.active = false;
-    p.weapon = loadout.weapon;
-    p.ability = loadout.ability;
+    p.classId = klass.id;
+    p.weapon = klass.weapon;
+    p.ability = klass.ability;
+    p.viewScale = klass.viewScale;
     p.abilityCooldown = 0;
     p.attackCooldown = 0;
   }

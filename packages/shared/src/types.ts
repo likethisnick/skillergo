@@ -4,8 +4,12 @@ import type { ServerConfig } from './server.config';
 
 export type EntityId = number;
 
-export type WeaponType = 'gun' | 'sword' | 'beam';
-export type AbilityType = 'hook' | 'shield' | 'shotgun';
+export type WeaponType = 'gun' | 'sword' | 'beam' | 'rifle' | 'fireball' | 'blink';
+export type AbilityType = 'hook' | 'shield' | 'shotgun' | 'cloak' | 'rally' | 'whirlwind';
+
+/** Playable classes. Each one is a fixed weapon + ability pair. */
+export type ClassId = 'fighter' | 'laser' | 'gunner' | 'marksman' | 'summoner' | 'bastard';
+export const CLASS_IDS: readonly ClassId[] = ['fighter', 'laser', 'gunner', 'marksman', 'summoner', 'bastard'];
 export type RegularEnemyKind = 'grunt' | 'rusher' | 'sniper';
 export type BossKind = 'colossus' | 'duelist' | 'blademaster';
 /** Training-room only target. */
@@ -83,8 +87,8 @@ export interface Buffs {
 /** Who fired a projectile; lets clients pick visuals without extra lookups. */
 export type ProjectileSource = 'player' | EnemyKind;
 
-export const WEAPON_TYPES: readonly WeaponType[] = ['gun', 'sword', 'beam'];
-export const ABILITY_TYPES: readonly AbilityType[] = ['hook', 'shield', 'shotgun'];
+export const WEAPON_TYPES: readonly WeaponType[] = ['gun', 'sword', 'beam', 'rifle', 'fireball', 'blink'];
+export const ABILITY_TYPES: readonly AbilityType[] = ['hook', 'shield', 'shotgun', 'cloak', 'rally', 'whirlwind'];
 export const REGULAR_ENEMY_KINDS: readonly RegularEnemyKind[] = ['grunt', 'rusher', 'sniper'];
 export const BOSS_KINDS: readonly BossKind[] = ['colossus', 'duelist', 'blademaster'];
 
@@ -100,13 +104,12 @@ export interface GameSettings {
   speed: number;
 }
 
-/** Character customization chosen before a run (sent in a "join" message in multiplayer). */
+/** Character choice made before a run (sent in a "join" message in multiplayer). */
 export interface Loadout {
-  weapon: WeaponType;
-  ability: AbilityType;
+  classId: ClassId;
 }
 
-export const DEFAULT_LOADOUT: Readonly<Loadout> = { weapon: 'gun', ability: 'hook' };
+export const DEFAULT_LOADOUT: Readonly<Loadout> = { classId: 'gunner' };
 
 /**
  * Everything a client sends to the simulation for one player.
@@ -172,8 +175,9 @@ export interface Beam {
   active: boolean;
   endX: number;
   endY: number;
-  /** Player whose shield stopped the beam (it burns through everything else); null otherwise. */
   targetId: EntityId | null;
+  /** Damage dealt since the last floating-number report. */
+  pendingDamage: number;
   reportTimer: number;
 }
 
@@ -219,8 +223,11 @@ export interface Player {
   upgradeRequests: UpgradeRanks;
   buffs: Buffs;
 
+  classId: ClassId;
   weapon: WeaponType;
   ability: AbilityType;
+  /** How much of the world this player sees (1 = standard; the marksman sees more). */
+  viewScale: number;
 
   attackCooldown: number;
   /** Time and direction of the last weapon attack (used to draw sword swings). */
@@ -236,6 +243,14 @@ export interface Player {
   /** Shield width captured at activation (depends on the ability rank). */
   shieldArc: number;
   hook: Hook;
+
+  /** Marksman: seconds of invisibility left (attacking cancels it). */
+  cloakTimer: number;
+  /** Summoner: seconds until the rally buff can be cast again is `abilityCooldown`; this is the last mark. */
+  rallyX: number;
+  rallyY: number;
+  /** Bastard: seconds left of the spinning blade animation. */
+  whirlTimer: number;
 
   dashTimer: number;
   dashCooldown: number;
@@ -282,6 +297,8 @@ export interface Enemy {
   slotAngle: number;
   /** Personal multiplier for the preferred distance. */
   distanceScale: number;
+  /** Summoner's rally: seconds of the speed / damage buff left (drawn as a yellow aura). */
+  rallyTimer: number;
   /** Seconds since spawn (used for fade-in). */
   age: number;
   /** Seconds left of the "just got hit" flash. */
@@ -320,6 +337,9 @@ export interface Projectile {
   /** Sniper shots fly through buildings too, except the one they were aimed at. */
   piercesBuildings: boolean;
   aimedAt: EntityId | null;
+  /** Fireball: area damage where the shot stops (0 = no blast). */
+  blastRadius: number;
+  blastDamage: number;
 }
 
 export type OrbKind = 'xp' | 'heal' | 'power';
@@ -356,8 +376,6 @@ export type GameEvent =
   | { type: 'playerHit'; playerId: EntityId; x: number; y: number; damage: number }
   | { type: 'playerDied'; playerId: EntityId; level: number }
   | { type: 'blocked'; playerId: EntityId; x: number; y: number }
-  /** A sword swing cut a bullet. */
-  | { type: 'bulletCut'; playerId: EntityId; x: number; y: number }
   | { type: 'shotgun'; playerId: EntityId; x: number; y: number; angle: number; range: number; arc: number }
   | { type: 'upgrade'; playerId: EntityId; stat: UpgradeStat; rank: number }
   | { type: 'powerUp'; playerId: EntityId; buff: 'damage' | 'attackSpeed' | 'speed' | 'wipe' }
@@ -371,8 +389,11 @@ export type GameEvent =
   | { type: 'towerShot'; towerId: EntityId; team: TeamId; x: number; y: number; targetX: number; targetY: number }
   | { type: 'towerDestroyed'; towerId: EntityId; team: TeamId; lane: LaneId; x: number; y: number; blastRadius: number; wiped: number }
   | { type: 'nexusStage'; nexusId: EntityId; team: TeamId; stage: number; boss: BossKind }
-  /** `reason`: 'forfeit' when the other side left an online match (missing = the nexus fell). */
-  | { type: 'victory'; team: TeamId; reason?: 'nexus' | 'forfeit' };
+  | { type: 'victory'; team: TeamId }
+  | { type: 'explosion'; x: number; y: number; radius: number; source: WeaponType | AbilityType }
+  | { type: 'blink'; playerId: EntityId; fromX: number; fromY: number; x: number; y: number }
+  | { type: 'cloak'; playerId: EntityId; on: boolean }
+  | { type: 'rally'; playerId: EntityId; x: number; y: number; radius: number; count: number };
 
 /** Common part of nexuses and towers. */
 export interface Building extends Body {
@@ -426,6 +447,8 @@ export interface WorldView {
   /** Base balance values of this world (a network client receives them from the server). */
   readonly server: Readonly<ServerConfig>;
   readonly mode: GameMode;
+  /** World area a standard player sees (the client zooms to it). */
+  readonly view: { readonly width: number; readonly height: number };
   /** Walls. Static for the whole run. */
   readonly map: GameMap;
   /** 0..1: how far the difficulty ramp has progressed (1 at the peak level). */

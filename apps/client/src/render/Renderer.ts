@@ -10,7 +10,6 @@ import {
 } from '@skillergo/shared';
 import { drawArenaGround, drawNexus, drawTower } from './Arena';
 import { Camera } from './Camera';
-import type { NetOverlay } from '../session/GameSession';
 import type { Effects } from './Effects';
 import { drawHud } from './Hud';
 import { drawIcon } from './icons';
@@ -26,6 +25,8 @@ export const COLORS = {
   sword: '#9aa4ad',
   elite: '#f5b921',
   heal: '#ff5d73',
+  fire: '#ff7a2e',
+  rally: '#f5c518',
   dummyStroke: '#8a949e',
   powerDamage: '#ff7a2e',
   powerSpeed: '#29b6f6',
@@ -62,7 +63,7 @@ const WALL_COLORS = [
 
 /**
  * Canvas 2D renderer. Reads only WorldView, so it works the same for
- * local and online sessions. Can be swapped for PixiJS later.
+ * local and (future) networked sessions. Can be swapped for PixiJS later.
  */
 export class Renderer {
   readonly camera = new Camera();
@@ -72,7 +73,6 @@ export class Renderer {
   /** Frame state shared by the draw helpers. */
   private versus = false;
   private myTeam: TeamId = 'blue';
-  private net: NetOverlay | undefined;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -82,14 +82,15 @@ export class Renderer {
     window.addEventListener('resize', this.resize);
   }
 
-  /** `net` is present in online matches (names, ping, connection state). */
-  render(view: WorldView, localPlayerId: EntityId, effects: Effects, net?: NetOverlay): void {
+  render(view: WorldView, localPlayerId: EntityId, effects: Effects): void {
     const { ctx, camera } = this;
     const me = view.players.get(localPlayerId);
-    if (me) camera.follow(me.x, me.y);
+    if (me) {
+      camera.follow(me.x, me.y);
+      camera.setView(view.view.width * me.viewScale, view.view.height * me.viewScale);
+    }
     this.versus = view.mode === 'versus';
     this.myTeam = me?.team ?? 'blue';
-    this.net = net;
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = COLORS.outside;
@@ -105,10 +106,7 @@ export class Renderer {
     this.drawWalls(view);
     for (const nexus of view.nexuses.values()) drawNexus(ctx, nexus, view);
     for (const tower of view.towers.values()) drawTower(ctx, tower, view, me);
-    for (const orb of view.orbs.values()) {
-      // Drops of our own units are for the enemy: we cannot pick them up, so we do not see them.
-      if (orb.denyTeam !== this.myTeam) this.drawOrb(orb, view.time);
-    }
+    for (const orb of view.orbs.values()) this.drawOrb(orb, view.time);
     for (const enemy of view.enemies.values()) this.drawEnemyTelegraph(enemy, view.time);
     for (const enemy of view.enemies.values()) this.drawEnemy(enemy, view.time, view.server.guardianAuraRadius);
     for (const player of view.players.values()) this.drawPlayerUnderlay(player, view.time);
@@ -125,7 +123,7 @@ export class Renderer {
         const size = camera.width < 700 ? 120 : 190;
         this.minimap.draw(ctx, view, localPlayerId, camera, camera.width - size - 20, 64, size, this.dpr);
       }
-      drawHud(ctx, me, view, effects, camera.width, camera.height, net);
+      drawHud(ctx, me, view, effects, camera.width, camera.height);
     }
   }
 
@@ -229,6 +227,7 @@ export class Renderer {
     }
 
     this.drawBuffAura(p, time);
+    if (p.whirlTimer > 0) this.drawWhirlwind(p, time);
     if (p.shieldTimer > 0) this.drawShield(p);
     if (p.weapon === 'sword') this.drawSwordSwing(p, time);
     if (p.weapon === 'beam' && p.beam.active) this.drawBeam(p, time);
@@ -238,10 +237,14 @@ export class Renderer {
   private drawPlayer(p: Readonly<Player>, time: number): void {
     // In versus a dead player is waiting for a respawn at the base: nothing to draw.
     if (!p.alive && this.versus) return;
+    // A cloaked enemy is simply not there for us; our own team sees a ghost.
+    const hidden = p.cloakTimer > 0;
+    if (hidden && p.team !== this.myTeam) return;
     const { ctx } = this;
     const style = PLAYER_STYLE[p.team];
     ctx.save();
-    if (!p.alive) ctx.globalAlpha = 0.35;
+    if (hidden) ctx.globalAlpha = 0.3;
+    else if (!p.alive) ctx.globalAlpha = 0.35;
     else if (p.invulnerableTimer > 0) ctx.globalAlpha = 0.5 + 0.2 * Math.sin(time * 20);
 
     this.drawWeapon(p, time, style);
@@ -250,99 +253,19 @@ export class Renderer {
     ctx.restore();
 
     if (!p.alive) return;
-    // Name tag: the player's name online, "AI" for bots.
-    const name = this.net?.names.get(p.id) ?? (p.isBot ? 'AI' : null);
-    this.drawPlayerPlate(p, style, name);
-  }
-
-  /**
-   * Player health plate: a framed capsule in the team color with a level badge on the left,
-   * a tick every 100 HP and the HP number inside.
-   */
-  private drawPlayerPlate(p: Readonly<Player>, style: Style, name: string | null): void {
-    const { ctx } = this;
-    const barW = 64;
-    const barH = 12;
-    const badgeR = 12;
-    const overlap = 7;
-    const left = p.x - (badgeR * 2 + barW - overlap) / 2;
-    const barX = left + badgeR * 2 - overlap;
-    const barY = p.y - p.radius - 24;
-    const cy = barY + barH / 2;
-    const ratio = Math.max(0, Math.min(1, p.hp / p.maxHp));
+    const barY = p.y - p.radius - 16;
     const hpColor = p.team === this.myTeam ? COLORS.hpPlayer : COLORS.hpEnemy;
-
-    ctx.save();
-    // Frame.
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = style.stroke;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.roundRect(barX - 3, barY - 3, barW + 6, barH + 6, (barH + 6) / 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Track, health and a glossy top half.
-    ctx.beginPath();
-    ctx.roundRect(barX, barY, barW, barH, barH / 2);
-    ctx.fillStyle = '#e8ecf0';
-    ctx.fill();
-    if (ratio > 0) {
-      const w = Math.max(barH, barW * ratio);
-      ctx.fillStyle = hpColor;
-      ctx.beginPath();
-      ctx.roundRect(barX, barY, w, barH, barH / 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
-      ctx.beginPath();
-      ctx.roundRect(barX + 2, barY + 1.5, Math.max(0, w - 4), barH / 2 - 1.5, 3);
-      ctx.fill();
-    }
-    // A thin notch every 100 HP shows how tanky someone is at a glance.
-    const notches = Math.floor((p.maxHp - 1) / 100);
-    if (notches > 0 && notches <= 15) {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      for (let i = 1; i <= notches; i++) {
-        const nx = barX + (barW * i * 100) / p.maxHp;
-        ctx.moveTo(nx, barY + 2);
-        ctx.lineTo(nx, barY + barH - 2);
-      }
-      ctx.stroke();
-    }
-    // HP number inside the bar.
-    ctx.font = 'bold 10px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-    const hpText = `${Math.ceil(p.hp)}`;
-    ctx.strokeText(hpText, barX + barW / 2 + 4, cy + 0.5);
-    ctx.fillStyle = '#2b2f33';
-    ctx.fillText(hpText, barX + barW / 2 + 4, cy + 0.5);
-
-    // Level badge.
-    const bx = left + badgeR;
-    ctx.beginPath();
-    ctx.arc(bx, cy, badgeR, 0, Math.PI * 2);
-    ctx.fillStyle = style.stroke;
-    ctx.fill();
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = '#ffffff';
-    ctx.stroke();
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `bold ${p.level >= 10 ? 11 : 13}px system-ui, sans-serif`;
-    ctx.fillText(`${p.level}`, bx, cy + 0.5);
-
-    if (name) {
+    this.drawHpBar(p.x, barY, 60, p.hp / p.maxHp, hpColor, Math.ceil(p.hp));
+    if (this.versus) {
+      // Name tag: level for everyone, "AI" for bots.
+      ctx.save();
       ctx.fillStyle = style.stroke;
       ctx.font = 'bold 13px system-ui, sans-serif';
+      ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(name, p.x, barY - 7);
+      ctx.fillText(p.isBot ? `AI · Lv ${p.level}` : `Lv ${p.level}`, p.x, barY - 20);
+      ctx.restore();
     }
-    ctx.restore();
   }
 
   private drawWeapon(p: Readonly<Player>, time: number, style: Style): void {
@@ -369,6 +292,52 @@ export class Renderer {
         ctx.arc(p.radius + 8, 0, 5, 0, Math.PI * 2);
         ctx.fill();
         break;
+      case 'rifle': {
+        ctx.rotate(p.aim);
+        ctx.fillStyle = style.stroke;
+        ctx.beginPath();
+        ctx.roundRect(0, -5, p.radius + 30, 10, 3);
+        ctx.fill();
+        // Scope on top of the barrel.
+        ctx.beginPath();
+        ctx.roundRect(p.radius - 2, -12, 14, 7, 2);
+        ctx.fill();
+        break;
+      }
+      case 'fireball': {
+        // A staff with a burning orb at the tip.
+        ctx.rotate(p.aim);
+        ctx.strokeStyle = '#8a6a45';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(p.radius + 16, 0);
+        ctx.stroke();
+        const glow = 6 + Math.sin(time * 8) * 1.5;
+        ctx.fillStyle = COLORS.fire;
+        ctx.shadowColor = COLORS.fire;
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(p.radius + 20, 0, glow, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        break;
+      }
+      case 'blink': {
+        // Two short blades.
+        ctx.rotate(p.aim);
+        ctx.strokeStyle = COLORS.sword;
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(p.radius - 6, side * 8);
+          ctx.lineTo(p.radius + 16, side * 3);
+          ctx.stroke();
+        }
+        break;
+      }
       case 'sword': {
         // Resting blade next to the body; hidden while the swing arc is drawn.
         if (time - p.lastAttackTime < CONFIG.weapons.sword.swingTime) break;
@@ -382,6 +351,32 @@ export class Renderer {
         ctx.stroke();
         break;
       }
+    }
+    ctx.restore();
+  }
+
+  /** Bastard's sweep: two blurred blades turning around him. */
+  private drawWhirlwind(p: Readonly<Player>, time: number): void {
+    const { ctx } = this;
+    const C = CONFIG.abilities.whirlwind;
+    const k = p.whirlTimer / C.spinTime;
+    const radius = C.radius;
+    ctx.save();
+    ctx.globalAlpha = 0.25 * k;
+    ctx.fillStyle = COLORS.sword;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.9 * k;
+    ctx.strokeStyle = '#6f7a84';
+    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    const spin = time * 26;
+    for (const side of [0, Math.PI]) {
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x + Math.cos(spin + side) * radius, p.y + Math.sin(spin + side) * radius);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -600,6 +595,15 @@ export class Renderer {
       // Bullseye target.
       this.circle(e.x, e.y, r * 0.66, 'transparent', COLORS.dummyStroke, 3);
       this.circle(e.x, e.y, r * 0.3, COLORS.hpEnemy);
+    }
+    if (e.rallyTimer > 0) {
+      // Rallied by a summoner: a yellow glow around the body.
+      ctx.save();
+      ctx.globalAlpha = t * (0.5 + 0.3 * Math.sin(time * 8 + e.id));
+      ctx.shadowColor = COLORS.rally;
+      ctx.shadowBlur = 16;
+      this.circle(e.x, e.y, r + 6, 'transparent', COLORS.rally, 4);
+      ctx.restore();
     }
     if (e.kind === 'farmer') this.drawFarmerHat(e.x, e.y, r);
     if (e.elite) this.circle(e.x, e.y, r + 6, 'transparent', COLORS.elite, 3);

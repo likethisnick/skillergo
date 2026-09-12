@@ -1,4 +1,4 @@
-import type { AbilityType, EnemyKind, GameMode, GameSettings, UpgradeLogEntry, UpgradeRanks, WeaponType } from './types';
+import type { AbilityType, ClassId, EnemyKind, GameMode, GameSettings, UpgradeLogEntry, UpgradeRanks, WeaponType } from './types';
 import type { World } from './world';
 
 export type RunEndReason = 'death' | 'finished' | 'restart' | 'menu' | 'closed';
@@ -21,6 +21,8 @@ export interface RunSummary {
   balance: { difficultyGrowthRate: number; xpMultiplier: number };
   /** 0..1: how far the difficulty ramp got. */
   difficultyReached: number;
+  /** Class played this run; weapon and ability come from it. */
+  class: ClassId;
   weapon: WeaponType;
   ability: AbilityType;
   level: number;
@@ -64,6 +66,7 @@ export function buildRunSummary(
     settings: { ...world.settings },
     balance: { difficultyGrowthRate: world.server.difficultyGrowthRate, xpMultiplier: world.server.xpMultiplier },
     difficultyReached: Math.round(world.intensity * 1000) / 1000,
+    class: p.classId,
     weapon: p.weapon,
     ability: p.ability,
     level: p.level,
@@ -93,6 +96,7 @@ export function isRunSummary(value: unknown): value is RunSummary {
     v.version === 1 &&
     typeof v.durationSeconds === 'number' &&
     typeof v.level === 'number' &&
+    typeof v.class === 'string' &&
     typeof v.weapon === 'string' &&
     typeof v.ability === 'string' &&
     !!v.kills && typeof v.kills.total === 'number' &&

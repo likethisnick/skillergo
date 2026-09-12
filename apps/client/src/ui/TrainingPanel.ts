@@ -1,8 +1,9 @@
 import {
-  ABILITY_TYPES,
+  CLASS_IDS,
   CONFIG,
+  DEFAULT_LOADOUT,
   UPGRADE_STATS,
-  WEAPON_TYPES,
+  classInfo,
   type EnemyKind,
   type Loadout,
   type Player,
@@ -10,7 +11,7 @@ import {
   type UpgradeStat,
 } from '@skillergo/shared';
 import type { TrainingControls } from '../session/GameSession';
-import { ABILITY_INFO, UPGRADE_INFO, WEAPON_INFO } from './loadoutInfo';
+import { ABILITY_INFO, CLASS_INFO, UPGRADE_INFO, WEAPON_INFO } from './loadoutInfo';
 import { requireElement } from './StartScreen';
 
 const SPAWNS: readonly { label: string; kind: EnemyKind; elite?: boolean }[] = [
@@ -35,12 +36,12 @@ export class TrainingPanel {
   private readonly root: HTMLElement;
   private readonly body: HTMLElement;
   private controls: TrainingControls | null = null;
-  private loadout: Loadout = { weapon: 'gun', ability: 'hook' };
+  private loadout: Loadout = { ...DEFAULT_LOADOUT };
   private onLoadoutChange: (loadout: Loadout) => void = () => {};
   private readonly rankLabels = new Map<UpgradeStat, HTMLElement>();
-  private readonly weaponButtons: HTMLButtonElement[] = [];
-  private readonly abilityButtons: HTMLButtonElement[] = [];
+  private readonly classButtons: HTMLButtonElement[] = [];
   private aiToggle!: HTMLInputElement;
+  private kitLabel!: HTMLElement;
 
   constructor() {
     this.root = requireElement<HTMLElement>('training-panel');
@@ -59,12 +60,10 @@ export class TrainingPanel {
     this.body = document.createElement('div');
     this.body.className = 'tp-body';
     this.body.append(
-      this.section('Weapon · LMB', this.segmented(WEAPON_TYPES, (w) => WEAPON_INFO[w].name, this.weaponButtons, (weapon) => {
-        this.applyLoadout({ ...this.loadout, weapon });
+      this.section('Class', this.segmented(CLASS_IDS, (id) => CLASS_INFO[id].name, this.classButtons, (classId) => {
+        this.applyLoadout({ classId });
       })),
-      this.section('Ability · RMB', this.segmented(ABILITY_TYPES, (a) => ABILITY_INFO[a].name, this.abilityButtons, (ability) => {
-        this.applyLoadout({ ...this.loadout, ability });
-      })),
+      this.section('Kit', this.kitLine()),
       this.section('Upgrades · keys 1 / 2 / 3', this.upgradeRows()),
       this.section('Spawn', this.grid(SPAWNS.map((s) => this.button(s.label, () => this.controls?.spawnEnemy(s.kind, s.elite))))),
       this.section('Power-ups', this.grid(POWER_UPS.map((p) => this.button(p.label, () => this.controls?.spawnPowerUp(p.kind))))),
@@ -104,6 +103,13 @@ export class TrainingPanel {
     return Number(this.rankLabels.get(stat)?.textContent ?? 0);
   }
 
+  /** Shows which weapon and ability the picked class gives. */
+  private kitLine(): HTMLElement {
+    this.kitLabel = document.createElement('div');
+    this.kitLabel.className = 'tp-kit';
+    return this.kitLabel;
+  }
+
   private applyLoadout(loadout: Loadout): void {
     this.loadout = loadout;
     this.controls?.setLoadout(loadout);
@@ -112,8 +118,9 @@ export class TrainingPanel {
   }
 
   private refreshLoadout(): void {
-    for (const b of this.weaponButtons) b.setAttribute('aria-pressed', String(b.dataset.value === this.loadout.weapon));
-    for (const b of this.abilityButtons) b.setAttribute('aria-pressed', String(b.dataset.value === this.loadout.ability));
+    for (const b of this.classButtons) b.setAttribute('aria-pressed', String(b.dataset.value === this.loadout.classId));
+    const info = classInfo(this.loadout.classId);
+    this.kitLabel.textContent = `LMB ${WEAPON_INFO[info.weapon].name} · RMB ${ABILITY_INFO[info.ability].name}`;
   }
 
   private upgradeRows(): HTMLElement {

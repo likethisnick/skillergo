@@ -44,6 +44,13 @@ export function forEachHostile(
   }
 }
 
+/** Can AI (mobs, towers, the bot) pick this target? A cloaked player cannot be seen. */
+export function canBeTargeted(world: World, kind: TargetKind, id: EntityId): boolean {
+  if (kind !== 'player') return true;
+  const p = world.players.get(id);
+  return !!p && p.alive && p.cloakTimer <= 0;
+}
+
 export function getTarget(world: World, kind: TargetKind, id: EntityId): Body | undefined {
   switch (kind) {
     case 'player': {

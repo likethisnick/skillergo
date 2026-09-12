@@ -2,7 +2,7 @@ import { CONFIG } from '../config';
 import { distanceSq } from '../math/vec2';
 import type { Body, EntityId, TargetKind, Tower } from '../types';
 import type { World } from '../world';
-import { damageTarget, getTarget } from './targets';
+import { canBeTargeted, damageTarget, getTarget } from './targets';
 
 interface TowerTarget {
   kind: TargetKind;
@@ -38,7 +38,7 @@ function pickTarget(world: World, tower: Tower): TowerTarget | null {
 
   // 1. A player attacking one of our players under the tower.
   for (const p of world.players.values()) {
-    if (!p.alive || p.team === tower.team || !inRange(p)) continue;
+    if (!p.alive || p.cloakTimer > 0 || p.team === tower.team || !inRange(p)) continue;
     for (const ally of world.players.values()) {
       if (ally.team !== tower.team || !ally.alive || ally.lastHitBy !== p.id) continue;
       if (world.time - ally.lastDamageTime <= CONFIG.versus.towerAggroMemory && inRange(ally)) {
@@ -50,7 +50,8 @@ function pickTarget(world: World, tower: Tower): TowerTarget | null {
   // 2. Keep shooting the current target while it stays in range (except a player once mobs arrive).
   if (tower.targetKind && tower.targetId !== null) {
     const current = getTarget(world, tower.targetKind, tower.targetId);
-    if (current && inRange(current) && (tower.targetKind !== 'player' || !hasMobInRange(world, tower, inRange))) {
+    const visible = canBeTargeted(world, tower.targetKind, tower.targetId);
+    if (current && visible && inRange(current) && (tower.targetKind !== 'player' || !hasMobInRange(world, tower, inRange))) {
       return { kind: tower.targetKind, id: tower.targetId, body: current };
     }
   }
@@ -68,7 +69,7 @@ function pickTarget(world: World, tower: Tower): TowerTarget | null {
   }
   if (best) return best;
   for (const p of world.players.values()) {
-    if (!p.alive || p.team === tower.team || !inRange(p)) continue;
+    if (!p.alive || p.cloakTimer > 0 || p.team === tower.team || !inRange(p)) continue;
     const d = distanceSq(p.x, p.y, tower.x, tower.y);
     if (d < bestSq) {
       bestSq = d;

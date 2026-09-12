@@ -61,6 +61,8 @@ export const CONFIG = {
 
   /** World area visible around a player. Used for fair-shot checks and client zoom. */
   view: { width: 1280, height: 720 },
+  /** Versus is played on a much bigger map, so the camera is pulled back. */
+  versusViewScale: 1.4,
 
   player: {
     radius: 28,
@@ -130,7 +132,7 @@ export const CONFIG = {
     gun: {
       cooldown: 0.25,
       projectileRadius: 6,
-      range: 560,
+      range: 900,
     },
     sword: {
       cooldown: 0.45,
@@ -144,6 +146,29 @@ export const CONFIG = {
       range: 520,
       /** How often accumulated beam damage is reported as a floating number. */
       reportInterval: 0.3,
+    },
+    /** Marksman: one hard-hitting shot per cooldown, almost as far as a tower shoots. */
+    rifle: {
+      cooldown: 0.8,
+      projectileRadius: 8,
+      /** Range as a share of the tower range, so both stay in step. */
+      rangeTowerShare: 0.95,
+      /** Multiplier on the base bullet speed: the shot is very fast. */
+      speedMultiplier: 3,
+    },
+    /** Summoner: a slow ball that bursts on contact or at the end of its flight. */
+    fireball: {
+      cooldown: 0.7,
+      projectileRadius: 14,
+      range: 620,
+      blastRadius: 130,
+      speedMultiplier: 0.75,
+    },
+    /** Bastard: LMB is a short teleport that hurts everything where he lands. */
+    blink: {
+      cooldown: 0.9,
+      range: 260,
+      blastRadius: 140,
     },
   },
 
@@ -176,6 +201,42 @@ export const CONFIG = {
       range: 320,
       arc: deg(50),
     },
+    /** Marksman: invisible until he attacks. */
+    cloak: {
+      duration: 3,
+      cooldown: 12,
+    },
+    /** Summoner: own mobs around him get stronger and go for the marked target. */
+    rally: {
+      cooldown: 14,
+      duration: 6,
+      /** Reach of the call: the summoner's own weapon range. */
+      radius: 620,
+      /** A hostile this close to the cursor becomes the marked target. */
+      markRadius: 260,
+      speedBonus: 0.4,
+      damageBonus: 0.5,
+    },
+    /** Bastard: a sweep around himself. */
+    whirlwind: {
+      cooldown: 5,
+      radius: 220,
+      /** Visual spin length; damage lands at the start. */
+      spinTime: 0.35,
+    },
+  },
+
+  /**
+   * Playable classes: a fixed weapon + ability pair each.
+   * `viewScale` widens what the player sees (the marksman shoots farther than a standard screen shows).
+   */
+  classes: {
+    fighter: { name: 'Fighter', weapon: 'sword', ability: 'hook', viewScale: 1, description: 'Sword and hook. Pull them in, cut them down.' },
+    laser: { name: 'Laser', weapon: 'beam', ability: 'shield', viewScale: 1, description: 'Constant beam and a shield that blocks the side you face.' },
+    gunner: { name: 'Gunner', weapon: 'gun', ability: 'shotgun', viewScale: 1, description: 'Auto-fire bullets and a point-blank shotgun blast.' },
+    marksman: { name: 'Marksman', weapon: 'rifle', ability: 'cloak', viewScale: 1.25, description: 'Slow, heavy shots at tower range. Goes invisible for 3 s, until he fires.' },
+    summoner: { name: 'Summoner', weapon: 'fireball', ability: 'rally', viewScale: 1, description: 'Exploding fireballs. Buffs nearby friendly mobs and sends them at the marked target.' },
+    bastard: { name: 'Bastard', weapon: 'blink', ability: 'whirlwind', viewScale: 1, description: 'Blinks short distances, hurting everything where he lands, and spins for damage all around.' },
   },
 
   enemies: {

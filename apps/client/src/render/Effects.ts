@@ -97,6 +97,29 @@ export class Effects {
             this.addText(ev.x, ev.y - 50, 'Kill the guardian first', '#777777', 20, 1);
           }
           break;
+        case 'explosion': {
+          const color = ev.source === 'fireball' ? '#ff7a2e' : ev.source === 'blink' ? '#8e5bd6' : '#9aa4ad';
+          this.rings.push({ x: ev.x, y: ev.y, color, radius: ev.radius, age: 0, life: 0.45 });
+          break;
+        }
+        case 'blink':
+          this.beams.push({ x: ev.fromX, y: ev.fromY, targetX: ev.x, targetY: ev.y, color: '#8e5bd6', age: 0, life: 0.3 });
+          this.rings.push({ x: ev.fromX, y: ev.fromY, color: '#8e5bd6', radius: 60, age: 0, life: 0.3 });
+          break;
+        case 'cloak': {
+          const p = view.players.get(ev.playerId);
+          if (p && ev.playerId === localPlayerId) {
+            this.addText(p.x, p.y - 60, ev.on ? 'CLOAKED' : 'VISIBLE', ev.on ? '#6a6f76' : '#b83b34', 18, 0.9);
+          }
+          break;
+        }
+        case 'rally': {
+          const p = view.players.get(ev.playerId);
+          if (p) this.rings.push({ x: p.x, y: p.y, color: '#f5c518', radius: ev.radius, age: 0, life: 0.6 });
+          this.rings.push({ x: ev.x, y: ev.y, color: '#f5c518', radius: 90, age: 0, life: 0.8 });
+          if (ev.playerId === localPlayerId) this.addText(ev.x, ev.y - 50, `RALLY x${ev.count}`, '#c99a06', 20, 1);
+          break;
+        }
         case 'towerShot':
           this.beams.push({
             x: ev.x, y: ev.y, targetX: ev.targetX, targetY: ev.targetY,
@@ -138,9 +161,7 @@ export class Effects {
           this.setBanner({
             kind: 'result',
             title: won ? 'VICTORY' : 'DEFEAT',
-            subtitle: ev.reason === 'forfeit'
-              ? won ? 'Your opponent left the match' : 'You left the match'
-              : won ? 'The enemy nexus has fallen' : 'Your nexus has fallen',
+            subtitle: won ? 'The enemy nexus has fallen' : 'Your nexus has fallen',
             color: won ? '#2e9e5b' : '#b83b34',
             age: 0,
             life: 4,
@@ -191,11 +212,6 @@ export class Effects {
           break;
         case 'blocked':
           this.rings.push({ x: ev.x, y: ev.y, color: '#4a90e2', radius: 38, age: 0, life: 0.3 });
-          break;
-        case 'bulletCut':
-          // A quick steel-colored spark where the blade met the bullet.
-          this.rings.push({ x: ev.x, y: ev.y, color: '#6f7a84', radius: 26, age: 0, life: 0.22 });
-          this.rings.push({ x: ev.x, y: ev.y, color: '#ffd166', radius: 14, age: 0, life: 0.16 });
           break;
         case 'wallHit':
           this.rings.push({ x: ev.x, y: ev.y, color: '#9aa4ad', radius: 14, age: 0, life: 0.2 });

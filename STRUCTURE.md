@@ -6,7 +6,6 @@
 
 - **`packages/shared/src/`** — вся игровая логика: движение, бой, враги, опыт. Здесь нет браузера и отрисовки, этот же код потом запустится на сервере.
 - **`apps/client/src/`** — всё, что видит игрок: отрисовка, клавиатура и мышь, меню, HUD.
-- **`apps/server/src/`** — игровой сервер для онлайна: вход, очередь, матчи, рейтинг. Как запустить и задеплоить — [MULTIPLAYER.md](MULTIPLAYER.md).
 - **`game.config.json`** (в корне) — главные цифры баланса: `"название": число`.
 
 Клиент ничего не решает сам. Он отправляет в симуляцию нажатые клавиши (`PlayerInput`), читает состояние мира и рисует его.
@@ -41,7 +40,7 @@
 
 | Хочу поменять | Файл → функция |
 |---|---|
-| Движение игрока, рывок, реген (и постоянный реген с мечом — `swordRegenPercent` в конфиге) | `systems/players.ts` → `move`, `handleDashRequest`, `regenerate` |
+| Движение игрока, рывок, реген | `systems/players.ts` → `move`, `handleDashRequest`, `regenerate` |
 | +30% HP за уровень | `world.ts` → `grantXp` (доля — `config.ts` → `progression.hpPerLevel`) |
 | Стены: генерация, плотность, форма фигур | `map.ts` → `generate`, `TETROMINOES` (плотность — `server.config.ts` → `obstacleDensity`) |
 | Столкновения со стенами, лучи, «видит ли» | `map.ts` → `resolveCircle`, `raycast`, `lineOfSight` |
@@ -49,9 +48,13 @@
 | Как враги распределяются вокруг игрока | `systems/enemies.ts` → `slotPoint` (у каждого своё место `slotAngle`) и спавн с пустой стороны — `systems/spawner.ts` → `findHiddenSpawnPoint` |
 | Прокачка по кнопкам 1/2/3 | `systems/players.ts` → `applyUpgradeRequests`; начисление очков — `world.ts` → `grantXp`, `upgrade` |
 | Как ранги и баффы влияют на урон, скорость атаки, скорость, рывок | `stats.ts` |
-| Оружие: пушка, меч, луч (прожигает насквозь всех на линии, стоп — стена или щит) | `systems/weapons.ts` → `fireGun`, `swingSword`, `updateBeam` |
-| Меч срезает пули во время взмаха (кроме атак боссов) | `systems/weapons.ts` → `cutProjectiles` |
-| Способности: щит, дробь | `systems/abilities.ts` → `tryUseAbility`, `fireShotgun`, `shieldCovers` |
+| Какой класс что даёт (оружие + навык, обзор) | `config.ts` → `classes`; хелпер — `classes.ts` → `classInfo` |
+| Оружие: пушка, меч, луч, винтовка, фаербол, блинк | `systems/weapons.ts` → `fireGun`, `swingSword`, `updateBeam`, `fireRifle`, `throwFireball`, `blink` |
+| Способности: щит, дробь, невидимость, клич, вертушка | `systems/abilities.ts` → `tryUseAbility`, `fireShotgun`, `rallyMobs`, `spin`, `breakCloak` |
+| Взрыв фаербола (урон по площади) | `systems/projectiles.ts` → `burst` |
+| Баф от клича призывателя (скорость и урон мобов) | `systems/enemies.ts` → `speedOf`, `mobDamage` (поле `rallyTimer` у моба) |
+| Кого не видно в невидимости | `systems/targets.ts` → `canBeTargeted` |
+| Сколько мира видно игроку (зум камеры) | `world.ts` → `view`, `config.ts` → `view`, `versusViewScale`, `classes.*.viewScale`; камера — `render/Camera.ts` → `setView` |
 | Крюк | `systems/hook.ts` |
 | Движение и стрельба врагов | `systems/enemies.ts`: `updateShooter` (обычный стрелок, снайпер, Колосс), `updateRusher`, `updateDuelist`, `updateBlademaster` |
 | Прицеливание врагов (упреждение, разброс) | `systems/enemies.ts` → `updateAttack`, `leadAngle` |
@@ -100,11 +103,9 @@
 | Хочу поменять | Файл → функция |
 |---|---|
 | Главный цикл: старт, рестарт, смерть, победа, выход в меню | `main.ts` → `startGame`, `frame`, `leaveToMenu` |
-| Кто играет за красных в Versus AI, его оружие | `session/LocalSession.ts` (бот с `bot: true`) |
+| Кто играет за красных в Versus, его оружие | `session/LocalSession.ts` (бот с `bot: true`) |
 | Клавиши и мышь | `input/InputController.ts` (`DIRECTION_KEYS`, `DASH_KEYS`, `UPGRADE_KEYS`) |
 | Как рисуются игрок, враги, пули, орбы | `render/Renderer.ts` → `drawPlayer`, `drawEnemy`, `drawEnemyWeapon`, `drawProjectile`, `drawOrb` |
-| Плашка игрока: рамка HP, значок уровня слева, имя | `render/Renderer.ts` → `drawPlayerPlate` |
-| Какие шарики опыта видны (свои дропы, которые не подобрать, скрыты) | `render/Renderer.ts` → `render` (цикл по `view.orbs`) |
 | Как рисуются стены и их цвета | `render/Renderer.ts` → `drawWalls`, `WALL_COLORS` |
 | Цвета | `render/Renderer.ts` → `COLORS`; цвета команд, игроков и мобов — `render/teams.ts` (`TEAM_COLORS`, `PLAYER_STYLE`, `RED_MOBS`, `BLUE_MOBS`) |
 | Карта Versus: подсветка половин, линии, базы, нексус, башни и их радиус | `render/Arena.ts` → `drawArenaGround`, `drawNexus`, `drawTower` |
@@ -115,33 +116,12 @@
 | Всплывающие цифры урона, выстрелы башен, взрыв башни, баннеры (босс, страж, башня, победа), счётчик DPS | `render/Effects.ts` |
 | Иконки оружия и способностей | `render/icons.ts` |
 | Камера и зум | `render/Camera.ts` |
-| Стартовый экран: выбор оружия, ползунки | `ui/StartScreen.ts`, вёрстка — `index.html`, стили — `style.css` |
+| Стартовый экран: выбор класса, ползунки | `ui/StartScreen.ts` → `buildClassGroup`, вёрстка — `index.html`, стили — `style.css` |
 | Названия и описания оружия и способностей | `ui/loadoutInfo.ts` |
 | Меню по Esc | `ui/PauseMenu.ts` |
 | Панель тренировочной комнаты | `ui/TrainingPanel.ts` |
-| Где запускается симуляция (локально или по сети) | `session/LocalSession.ts`, `session/NetworkSession.ts`, интерфейс — `session/GameSession.ts` |
+| Где запускается симуляция (локально или по сети) | `session/LocalSession.ts`, интерфейс — `session/GameSession.ts` |
 | Отправка истории забегов | `history/HistoryReporter.ts`; запись в файл — `apps/client/dev/historyLog.ts` |
-
-## Онлайн 1v1
-
-| Хочу поменять | Файл → функция |
-|---|---|
-| Рейтинг: старт, +за победу, −за поражение | `game.config.json` → `startRating`, `ratingWin`, `ratingLoss` |
-| Кто с кем играет (очередь, матчмейкинг) | `apps/server/src/lobby.ts` → `enqueue`, `matchmake` |
-| Сколько ждать отключившегося игрока, что происходит при выходе | `apps/server/src/match.ts` → `RECONNECT_GRACE_MS`, `surrender`, `checkDropped` |
-| Начисление рейтинга после матча | `apps/server/src/match.ts` → `end` |
-| Вход через GitHub / Google | `apps/server/src/oauth.ts`; ключи — переменные окружения (см. MULTIPLAYER.md) |
-| Где хранятся игроки и рейтинг | `apps/server/src/store.ts` → `users.json` в `DATA_DIR` |
-| Какие сообщения ходят между клиентом и сервером | `packages/shared/src/net/protocol.ts` (при изменении подними `PROTOCOL_VERSION`) |
-| Что попадает в снимок мира | `packages/shared/src/net/snapshot.ts` → `encodeSnapshotBody`, `decode*` |
-| Частота снимков, задержка интерполяции | `protocol.ts` → `TICKS_PER_SNAPSHOT`; `apps/client/src/session/NetworkSession.ts` → `MIN_INTERP_DELAY`, `MAX_INTERP_DELAY`, `measureClock` |
-| Предсказание своего движения и выстрелов, сглаживание поправок | `NetworkSession.ts` → `predictStep`, `spawnGhost`, `updateGhosts`, `reconcile`, `buildPlayers` |
-| Мгновенные «мультяшные» урон, смерть мобов, подбор опыта, срезание пуль; чужие пули «в твоём времени» | `apps/client/src/session/Anticipation.ts` (сроки отката — константы вверху файла) |
-| Мгновенный щит и дробовик | `NetworkSession.ts` → `predictAbility` |
-| Карточка «Online 1v1» в меню (вход, Find match, пинг) | `apps/client/src/ui/OnlinePanel.ts` |
-| Пинг и имена в HUD, плашка «соперник отключился» | `render/Hud.ts` → `drawNetInfo`, `drawNetStatus` |
-| Адрес игрового сервера для клиента | `apps/client/src/net/serverUrl.ts` (или `VITE_GAME_SERVER_URL` в Vercel) |
-| Какие страницы пускает сервер | `fly.toml` → `CLIENT_ORIGINS` |
 
 ## Рецепты
 
@@ -155,6 +135,12 @@
 6. Чтобы он ходил в волнах Versus — добавь его в `config.ts` → `versus.waveComposition`.
 7. По желанию: кнопка в `ui/TrainingPanel.ts` (`SPAWNS`).
 
+**Новый класс:**
+
+1. `types.ts` — добавь id в `ClassId` и `CLASS_IDS`.
+2. `config.ts` → `classes` — название, оружие, навык, описание, обзор.
+3. Если оружие или навык новые, сделай их по рецептам ниже.
+
 **Новое оружие:**
 
 1. `types.ts` — добавь имя в `WeaponType` и `WEAPON_TYPES`.
@@ -162,7 +148,7 @@
    Чтобы им пользовался ИИ-игрок — дистанции в `ai/bot.ts` → `WEAPON_RANGE`.
 3. `systems/weapons.ts` — ветка в `updateWeapon`.
 4. `render/Renderer.ts` → `drawWeapon`, `render/icons.ts` → `drawIcon`.
-5. `ui/loadoutInfo.ts` — название и описание; `render/Hud.ts` → `weaponStatLine`.
+5. `ui/loadoutInfo.ts` — название и описание; `render/Hud.ts` → `weaponStatLine`; иконка — `render/icons.ts`.
 
 **Новая способность** делается так же, только вместо `weapons.ts` правится `systems/abilities.ts` → `tryUseAbility`.
 
@@ -171,7 +157,6 @@
 ```bash
 npm run typecheck   # TypeScript подсветит всё, что ты забыл обновить
 npm run dev         # запусти и проверь в тренировочной комнате
-npm run dev:server  # (второй терминал) локальный сервер, чтобы проверить онлайн: два окна → Play as guest → Find match
 ```
 
 Если добавил новый тип (врага, оружие) и забыл прописать его в таблицах цветов, названий или иконок, `typecheck` покажет, где именно. Ветки в `switch` в системах (`updateEnemies`, `updateWeapon`) он не проверяет, их пройди по рецепту выше.

@@ -1,7 +1,7 @@
 import { LANES, depthInto, lanePath, territoryAt, type LaneId } from '../arena';
 import { CONFIG } from '../config';
 import { distance, distanceSq, length } from '../math/vec2';
-import { forEachHostile, getTarget } from '../systems/targets';
+import { canBeTargeted, forEachHostile, getTarget } from '../systems/targets';
 import {
   UPGRADE_STATS,
   otherTeam,
@@ -11,6 +11,7 @@ import {
   type PlayerInput,
   type TargetKind,
   type TeamId,
+  type WeaponType,
   type Tower,
   type UpgradeRanks,
 } from '../types';
@@ -19,11 +20,14 @@ import type { World } from '../world';
 type BotState = 'push' | 'defend' | 'retreat' | 'siege' | 'raid';
 
 /** Engage and shooting ranges per weapon. */
-const WEAPON_RANGE = {
-  gun: { keep: 430, fire: 540 },
+const WEAPON_RANGE: Record<WeaponType, { keep: number; fire: number }> = {
+  gun: { keep: 520, fire: 820 },
   beam: { keep: 400, fire: 500 },
   sword: { keep: 80, fire: 120 },
-} as const;
+  rifle: { keep: 560, fire: 640 },
+  fireball: { keep: 420, fire: 580 },
+  blink: { keep: 140, fire: 220 },
+};
 
 /**
  * The AI opponent. It sees the world like a player and answers with the same
@@ -123,7 +127,7 @@ export class BotBrain {
   }
 
   private pickTarget(world: World, p: Player, enemy: Player | undefined): { kind: TargetKind; id: EntityId } | null {
-    if (this.state === 'defend' && enemy && enemy.alive) return { kind: 'player', id: enemy.id };
+    if (this.state === 'defend' && enemy && enemy.alive && enemy.cloakTimer <= 0) return { kind: 'player', id: enemy.id };
 
     if (this.state === 'siege') {
       for (const n of world.nexuses.values()) {
@@ -143,7 +147,8 @@ export class BotBrain {
     let bestScore = Infinity;
     forEachHostile(world, p.team, (kind, id, body) => {
       const d = distance(p.x, p.y, body.x, body.y) - (kind === 'tower' ? body.radius : 0);
-      if (d > range || !world.map.lineOfSight(p.x, p.y, body.x, body.y)) return;
+      if (d > range || !canBeTargeted(world, kind, id)) return;
+      if (!world.map.lineOfSight(p.x, p.y, body.x, body.y)) return;
       let score = d;
       if (kind === 'player') score *= 0.6;
       const e = kind === 'enemy' ? world.enemies.get(id) : undefined;
@@ -310,9 +315,27 @@ export class BotBrain {
     let wantAbility = false;
     if (p.abilityUnlocked && p.abilityCooldown <= 0 && clear) {
       const building = this.target?.kind === 'nexus' || this.target?.kind === 'tower';
-      if (p.ability === 'hook') wantAbility = d > 200 && d < 600 && !building;
-      else if (p.ability === 'shotgun') wantAbility = d < 280;
-      else wantAbility = p.hp / p.maxHp < 0.7 && d < 700;
+      switch (p.ability) {
+        case 'hook':
+          wantAbility = d > 200 && d < 600 && !building;
+          break;
+        case 'shotgun':
+          wantAbility = d < 280;
+          break;
+        case 'whirlwind':
+          wantAbility = d < CONFIG.abilities.whirlwind.radius;
+          break;
+        case 'cloak':
+          // Vanish to escape or to sneak up before the next heavy shot.
+          wantAbility = p.hp / p.maxHp < 0.5 || (this.state === 'raid' && d > 700);
+          break;
+        case 'rally':
+          wantAbility = alliedMobsNear(world, p.team, p, CONFIG.abilities.rally.radius) >= 3;
+          break;
+        default:
+          wantAbility = p.hp / p.maxHp < 0.7 && d < 700;
+          break;
+      }
     }
     input.ability = wantAbility && !this.lastAbility;
     this.lastAbility = input.ability;

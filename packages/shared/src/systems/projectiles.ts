@@ -1,5 +1,5 @@
 import { CONFIG } from '../config';
-import { segmentCircleHit } from '../math/vec2';
+import { distanceSq, segmentCircleHit } from '../math/vec2';
 import type { EntityId, Projectile, TargetKind } from '../types';
 import type { World } from '../world';
 import { shieldCovers } from './abilities';
@@ -23,18 +23,35 @@ export function updateProjectiles(world: World, dt: number): void {
     }
 
     if (hitSomething(world, pr, x0, y0)) {
+      burst(world, pr);
       world.projectiles.delete(pr.id);
       continue;
     }
     if (wallT !== null) {
+      burst(world, pr);
       world.projectiles.delete(pr.id);
       world.emit({ type: 'wallHit', x: pr.x, y: pr.y });
       continue;
     }
     if (pr.life <= 0 || pr.x < 0 || pr.y < 0 || pr.x > world.width || pr.y > world.height) {
+      // A fireball bursts at the end of its flight too.
+      if (pr.life <= 0) burst(world, pr);
       world.projectiles.delete(pr.id);
     }
   }
+}
+
+/** Fireballs explode where they stop: everything hostile in the blast takes damage. */
+function burst(world: World, pr: Projectile): void {
+  if (pr.blastRadius <= 0) return;
+  const hits: [TargetKind, EntityId][] = [];
+  forEachHostile(world, pr.team, (kind, id, body) => {
+    if (distanceSq(body.x, body.y, pr.x, pr.y) > (pr.blastRadius + body.radius) ** 2) return;
+    if (!world.map.lineOfSight(pr.x, pr.y, body.x, body.y)) return;
+    hits.push([kind, id]);
+  });
+  for (const [kind, id] of hits) damageTarget(world, kind, id, pr.blastDamage, pr.ownerId, pr.x, pr.y);
+  world.emit({ type: 'explosion', x: pr.x, y: pr.y, radius: pr.blastRadius, source: 'fireball' });
 }
 
 /** The earliest hostile body along the bullet's path this tick takes the hit. */
@@ -45,6 +62,7 @@ function hitSomething(world: World, pr: Projectile, x0: number, y0: number): boo
   const candidates: { kind: TargetKind; id: EntityId; t: number }[] = [];
 
   forEachHostile(world, pr.team, (kind, id, body) => {
+    // A fireball must not burst on a body it only grazes: it stops on the first thing it touches.
     // Sniper shots fly over buildings, except the one they were aimed at.
     if (pr.piercesBuildings && isBuilding(kind) && id !== pr.aimedAt) return;
     let reach = body.radius + pr.radius;

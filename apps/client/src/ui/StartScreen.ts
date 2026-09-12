@@ -1,19 +1,20 @@
 import {
-  ABILITY_TYPES,
+  CLASS_IDS,
   CONFIG,
   DEFAULT_LOADOUT,
   DEFAULT_SETTINGS,
-  WEAPON_TYPES,
+  classInfo,
   difficultyLabel,
   getModifiers,
   normalizeSettings,
   targetPopulation,
+  type ClassId,
   type GameMode,
   type GameSettings,
   type Loadout,
 } from '@skillergo/shared';
 import { drawIcon, type IconName } from '../render/icons';
-import { ABILITY_INFO, WEAPON_INFO, type OptionInfo } from './loadoutInfo';
+import { ABILITY_INFO, CLASS_INFO, WEAPON_INFO } from './loadoutInfo';
 
 const LOADOUT_KEY = 'skillergo.loadout';
 const SETTINGS_KEY = 'skillergo.settings';
@@ -25,8 +26,6 @@ export interface GameOverInfo {
   title?: string;
   /** Shown in green instead of red. */
   won?: boolean;
-  /** Appended at the end (online: rating change). */
-  extra?: string;
 }
 
 /** DOM overlay: loadout picker, round Play button and run settings. */
@@ -40,15 +39,7 @@ export class StartScreen {
     this.root = requireElement<HTMLElement>('start-screen');
     this.gameOver = requireElement<HTMLElement>('game-over');
 
-    requireElement<HTMLElement>('loadout').append(
-      this.buildOptionGroup('LMB', 'Weapon', null, WEAPON_TYPES, WEAPON_INFO, () => this.loadout.weapon, (weapon) => {
-        this.loadout = { ...this.loadout, weapon };
-      }),
-      this.buildOptionGroup('RMB', 'Ability', `unlocks at level ${CONFIG.abilities.unlockLevel}`, ABILITY_TYPES, ABILITY_INFO,
-        () => this.loadout.ability, (ability) => {
-          this.loadout = { ...this.loadout, ability };
-        }),
-    );
+    requireElement<HTMLElement>('loadout').append(this.buildClassGroup());
     requireElement<HTMLElement>('settings').append(this.buildDifficulty(), this.buildSpeed());
 
     const start = (mode: GameMode): void => {
@@ -62,17 +53,10 @@ export class StartScreen {
     requireElement<HTMLButtonElement>('versus-button').addEventListener('click', () => start('versus'));
   }
 
-  /** Current weapon + ability (remembered for next time). Used by "Find match". */
-  selectedLoadout(): Loadout {
-    save(LOADOUT_KEY, this.loadout);
-    return { ...this.loadout };
-  }
-
   show(gameOver?: GameOverInfo): void {
     this.gameOver.hidden = !gameOver;
     if (gameOver) {
-      const extra = gameOver.extra ? ` · ${gameOver.extra}` : '';
-      this.gameOver.textContent = `${gameOver.title ?? 'Game over'} · level ${gameOver.level} · ${gameOver.kills} kills${extra}`;
+      this.gameOver.textContent = `${gameOver.title ?? 'Game over'} · level ${gameOver.level} · ${gameOver.kills} kills`;
       this.gameOver.classList.toggle('won', gameOver.won === true);
     }
     this.root.hidden = false;
@@ -179,55 +163,53 @@ export class StartScreen {
     return group;
   }
 
-  // ---------------------------------------------------------------- loadout
+  // ------------------------------------------------------------------ class
 
-  private buildOptionGroup<T extends IconName>(
-    key: string,
-    title: string,
-    note: string | null,
-    values: readonly T[],
-    info: Readonly<Record<T, OptionInfo>>,
-    get: () => T,
-    set: (value: T) => void,
-  ): HTMLElement {
+  /** One card per class: weapon icon, ability icon and what the pair does. */
+  private buildClassGroup(): HTMLElement {
     const group = document.createElement('section');
     group.className = 'loadout-group';
 
     const heading = document.createElement('h2');
     heading.className = 'loadout-title';
-    heading.innerHTML = `<span class="key">${key}</span>${title}`;
-    if (note) {
-      const small = document.createElement('span');
-      small.className = 'loadout-note';
-      small.textContent = note;
-      heading.append(small);
-    }
+    heading.innerHTML = '<span class="key">Class</span>Pick your kit';
+    const note = document.createElement('span');
+    note.className = 'loadout-note';
+    note.textContent = `RMB unlocks at level ${CONFIG.abilities.unlockLevel}`;
+    heading.append(note);
 
     const options = document.createElement('div');
     options.className = 'loadout-options';
     options.setAttribute('role', 'radiogroup');
-    options.setAttribute('aria-label', title);
+    options.setAttribute('aria-label', 'Class');
 
-    const buttons = values.map((value) => {
+    const buttons = CLASS_IDS.map((id) => {
+      const info = classInfo(id);
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'option';
       button.setAttribute('role', 'radio');
-      button.dataset.value = value;
+      button.dataset.value = id;
 
       const text = document.createElement('span');
       text.className = 'option-text';
       const name = document.createElement('span');
       name.className = 'option-name';
-      name.textContent = info[value].name;
+      name.textContent = CLASS_INFO[id].name;
+      const kit = document.createElement('span');
+      kit.className = 'option-kit';
+      kit.textContent = `${WEAPON_INFO[info.weapon].name} + ${ABILITY_INFO[info.ability].name}`;
       const desc = document.createElement('span');
       desc.className = 'option-desc';
-      desc.textContent = info[value].description;
-      text.append(name, desc);
+      desc.textContent = CLASS_INFO[id].description;
+      text.append(name, kit, desc);
 
-      button.append(createIconCanvas(value), text);
+      const icons = document.createElement('span');
+      icons.className = 'option-icons';
+      icons.append(createIconCanvas(info.weapon), createIconCanvas(info.ability, 26));
+      button.append(icons, text);
       button.addEventListener('click', () => {
-        set(value);
+        this.loadout = { classId: id };
         refresh();
       });
       return button;
@@ -235,7 +217,7 @@ export class StartScreen {
 
     const refresh = (): void => {
       for (const button of buttons) {
-        button.setAttribute('aria-checked', String(button.dataset.value === get()));
+        button.setAttribute('aria-checked', String(button.dataset.value === this.loadout.classId));
       }
     };
     refresh();
@@ -252,8 +234,7 @@ export function requireElement<T extends HTMLElement>(id: string): T {
   return el as T;
 }
 
-function createIconCanvas(icon: IconName): HTMLCanvasElement {
-  const size = 36;
+function createIconCanvas(icon: IconName, size = 36): HTMLCanvasElement {
   const dpr = window.devicePixelRatio || 1;
   const canvas = document.createElement('canvas');
   canvas.className = 'option-icon';
@@ -264,7 +245,7 @@ function createIconCanvas(icon: IconName): HTMLCanvasElement {
   const ctx = canvas.getContext('2d');
   if (ctx) {
     ctx.scale(dpr, dpr);
-    drawIcon(ctx, icon, size / 2, size / 2, 30, '#4a4a4a');
+    drawIcon(ctx, icon, size / 2, size / 2, size * 0.84, '#4a4a4a');
   }
   return canvas;
 }
@@ -274,10 +255,8 @@ function createIconCanvas(icon: IconName): HTMLCanvasElement {
 
 function loadLoadout(): Loadout {
   const parsed = load<Partial<Loadout>>(LOADOUT_KEY) ?? {};
-  return {
-    weapon: WEAPON_TYPES.find((w) => w === parsed.weapon) ?? DEFAULT_LOADOUT.weapon,
-    ability: ABILITY_TYPES.find((a) => a === parsed.ability) ?? DEFAULT_LOADOUT.ability,
-  };
+  const known = CLASS_IDS.find((id) => id === (parsed.classId as ClassId));
+  return { classId: known ?? DEFAULT_LOADOUT.classId };
 }
 
 function loadSettings(): GameSettings {

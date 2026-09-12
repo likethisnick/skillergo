@@ -20,11 +20,16 @@ export interface ServerConfig {
 
   gunDamage: number;
   swordDamage: number;
-  /** Sword owners regenerate this % of max HP per second, even in combat. */
-  swordRegenPercent: number;
   beamDamagePerSecond: number;
   hookDamage: number;
   shotgunDamage: number;
+  /** Marksman rifle: one heavy shot per cooldown (~1.5x the gunner's DPS when every shot lands). */
+  rifleDamage: number;
+  /** Summoner fireball: damage of the burst. */
+  fireballDamage: number;
+  /** Bastard: damage where he lands, and of the spin around him. */
+  blinkDamage: number;
+  whirlwindDamage: number;
 
   /** Base enemy speed; every type below is a multiplier of it. */
   enemySpeed: number;
@@ -79,13 +84,6 @@ export interface ServerConfig {
   versusLevelXp: number;
   versusLevelXpStep: number;
 
-  // Online matches (ranked 1v1).
-  /** Rating of a new player. */
-  startRating: number;
-  /** Rating change for a win and for a loss. */
-  ratingWin: number;
-  ratingLoss: number;
-
   historyEnabled: boolean;
   historyDir: string;
   historyFile: string;
@@ -101,10 +99,13 @@ const FALLBACK: ServerConfig = {
   obstacleDensity: 0.2,
   gunDamage: 50,
   swordDamage: 70,
-  swordRegenPercent: 1.5,
-  beamDamagePerSecond: 100,
+  beamDamagePerSecond: 40,
   hookDamage: 20,
   shotgunDamage: 120,
+  rifleDamage: 240,
+  fireballDamage: 90,
+  blinkDamage: 110,
+  whirlwindDamage: 140,
   enemySpeed: 100,
   gruntSpeedMultiplier: 1.1,
   rusherSpeedMultiplier: 3.2,
@@ -125,7 +126,7 @@ const FALLBACK: ServerConfig = {
   nexusHp: 30000,
   towersPerLane: 2,
   towerHp: 4000,
-  towerDamage: 15,
+  towerDamage: 60,
   towerAttackSeconds: 1,
   towerRange: 700,
   towerBlastRadius: 2560,
@@ -145,9 +146,6 @@ const FALLBACK: ServerConfig = {
   playerKillXpPerLevel: 8,
   versusLevelXp: 1500,
   versusLevelXpStep: 400,
-  startRating: 1300,
-  ratingWin: 20,
-  ratingLoss: 20,
   historyEnabled: true,
   historyDir: 'logs',
   historyFile: 'history.jsonl',
