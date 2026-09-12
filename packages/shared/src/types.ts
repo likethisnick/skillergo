@@ -376,6 +376,8 @@ export type GameEvent =
   | { type: 'playerHit'; playerId: EntityId; x: number; y: number; damage: number }
   | { type: 'playerDied'; playerId: EntityId; level: number }
   | { type: 'blocked'; playerId: EntityId; x: number; y: number }
+  /** Online: a sword swing cut an incoming bullet out of the air. */
+  | { type: 'bulletCut'; playerId: EntityId; x: number; y: number }
   | { type: 'shotgun'; playerId: EntityId; x: number; y: number; angle: number; range: number; arc: number }
   | { type: 'upgrade'; playerId: EntityId; stat: UpgradeStat; rank: number }
   | { type: 'powerUp'; playerId: EntityId; buff: 'damage' | 'attackSpeed' | 'speed' | 'wipe' }
@@ -389,7 +391,8 @@ export type GameEvent =
   | { type: 'towerShot'; towerId: EntityId; team: TeamId; x: number; y: number; targetX: number; targetY: number }
   | { type: 'towerDestroyed'; towerId: EntityId; team: TeamId; lane: LaneId; x: number; y: number; blastRadius: number; wiped: number }
   | { type: 'nexusStage'; nexusId: EntityId; team: TeamId; stage: number; boss: BossKind }
-  | { type: 'victory'; team: TeamId }
+  /** `reason` tells a forfeit (an opponent who left or dropped) from a fallen nexus. */
+  | { type: 'victory'; team: TeamId; reason?: 'nexus' | 'forfeit' }
   | { type: 'explosion'; x: number; y: number; radius: number; source: WeaponType | AbilityType }
   | { type: 'blink'; playerId: EntityId; fromX: number; fromY: number; x: number; y: number }
   | { type: 'cloak'; playerId: EntityId; on: boolean }

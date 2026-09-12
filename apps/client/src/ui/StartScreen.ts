@@ -22,6 +22,8 @@ const SETTINGS_KEY = 'skillergo.settings';
 export interface GameOverInfo {
   level: number;
   kills: number;
+  /** Extra line after the result (online: the rating change). */
+  extra?: string;
   /** Replaces the default "Game over" title (e.g. "Victory!"). */
   title?: string;
   /** Shown in green instead of red. */
@@ -53,10 +55,16 @@ export class StartScreen {
     requireElement<HTMLButtonElement>('versus-button').addEventListener('click', () => start('versus'));
   }
 
+  /** The class the player has picked (the online panel sends it with the queue request). */
+  selectedLoadout(): Loadout {
+    return { ...this.loadout };
+  }
+
   show(gameOver?: GameOverInfo): void {
     this.gameOver.hidden = !gameOver;
     if (gameOver) {
-      this.gameOver.textContent = `${gameOver.title ?? 'Game over'} · level ${gameOver.level} · ${gameOver.kills} kills`;
+      const extra = gameOver.extra ? ` · ${gameOver.extra}` : '';
+      this.gameOver.textContent = `${gameOver.title ?? 'Game over'} · level ${gameOver.level} · ${gameOver.kills} kills${extra}`;
       this.gameOver.classList.toggle('won', gameOver.won === true);
     }
     this.root.hidden = false;

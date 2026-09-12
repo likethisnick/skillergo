@@ -15,6 +15,7 @@ import {
   type UpgradeStat,
   type WorldView,
 } from '@skillergo/shared';
+import type { NetOverlay } from '../session/GameSession';
 import { ABILITY_INFO, ABILITY_UPGRADE_TEXT, CLASS_INFO, UPGRADE_INFO, WEAPON_INFO } from '../ui/loadoutInfo';
 import type { Effects } from './Effects';
 import { drawIcon, type IconName } from './icons';
@@ -32,18 +33,20 @@ export function drawHud(
   effects: Effects,
   width: number,
   height: number,
+  net?: NetOverlay,
 ): void {
   const training = view.mode === 'training';
   const versus = view.mode === 'versus';
   drawStats(ctx, me, view);
   if (training) drawTrainingInfo(ctx, effects, width);
   else drawSettings(ctx, view, width);
-  if (versus) drawNexusBars(ctx, me, view, width);
+  if (versus) drawNexusBars(ctx, me, view, width, net);
   else drawBossBar(ctx, view, width);
   if (versus && !me.alive) drawRespawnOverlay(ctx, me, width, height);
   if (me.upgradePoints > 0 && !training) drawUpgradeChoices(ctx, me, width / 2, height - 190);
   drawSlots(ctx, me, view.server, width / 2, height - 62);
   drawBanners(ctx, effects, width, height);
+  if (net) drawNetOverlay(ctx, net, width, height);
   // The controls hint only makes sense for keyboard + mouse screens.
   if (width >= 1100) drawHint(ctx, height);
 }
@@ -234,8 +237,42 @@ function drawBanners(ctx: CanvasRenderingContext2D, effects: Effects, width: num
   }
 }
 
+/** Online match: ping, opponent names and connection warnings. */
+function drawNetOverlay(ctx: CanvasRenderingContext2D, net: NetOverlay, width: number, height: number): void {
+  ctx.save();
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.font = `bold 13px ${FONT}`;
+  const ping = net.ping;
+  ctx.fillStyle = ping === null ? '#999' : ping < 80 ? '#2e9e5b' : ping < 160 ? '#e8990c' : '#b83b34';
+  ctx.fillText(ping === null ? 'online' : `online · ${Math.round(ping)} ms`, width - 20, 56);
+
+  // Connection trouble, on either side.
+  const warn = net.reconnecting
+    ? 'Reconnecting…'
+    : net.opponentGraceLeft !== null ? `Opponent disconnected · ${Math.ceil(net.opponentGraceLeft)} s` : null;
+  if (warn) {
+    ctx.textAlign = 'center';
+    ctx.font = `bold 20px ${FONT}`;
+    const w = ctx.measureText(warn).width + 36;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.strokeStyle = '#e8990c';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(width / 2 - w / 2, height * 0.12, w, 40, 10);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#b8760c';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(warn, width / 2, height * 0.12 + 21);
+  }
+  ctx.restore();
+}
+
 /** Versus: both nexuses side by side at the top, match clock between them. */
-function drawNexusBars(ctx: CanvasRenderingContext2D, me: Readonly<Player>, view: WorldView, width: number): void {
+function drawNexusBars(
+  ctx: CanvasRenderingContext2D, me: Readonly<Player>, view: WorldView, width: number, net?: NetOverlay,
+): void {
   const nexuses = [...view.nexuses.values()].sort((a, b) => (a.team === 'blue' ? -1 : b.team === 'blue' ? 1 : 0));
   if (nexuses.length === 0) return;
   const narrow = width < 1000;
@@ -253,7 +290,7 @@ function drawNexusBars(ctx: CanvasRenderingContext2D, me: Readonly<Player>, view
 
   nexuses.forEach((n, i) => {
     const x = i === 0 ? cx - gap / 2 - barW : cx + gap / 2;
-    drawNexusBar(ctx, n, me, view, x, y, barW);
+    drawNexusBar(ctx, n, me, view, x, y, barW, net);
   });
   ctx.restore();
 }
@@ -264,12 +301,17 @@ function drawNexusBar(
   me: Readonly<Player>,
   view: WorldView,
   x: number, y: number, w: number,
+  net?: NetOverlay,
 ): void {
   const colors = TEAM_COLORS[n.team];
   const h = 14;
   let owner = n.team === me.team ? 'YOUR BASE' : 'ENEMY BASE';
   for (const p of view.players.values()) {
-    if (p.team === n.team && p.id !== me.id) owner += ` · ${p.isBot ? 'AI ' : ''}Lv ${p.level}${p.alive ? '' : ' (dead)'}`;
+    if (p.team !== n.team || p.id === me.id) continue;
+    const name = net?.names.get(p.id);
+    const rating = net?.ratings.get(p.id);
+    const who = name ? `${name}${rating === undefined ? '' : ` (${rating})`}` : p.isBot ? 'AI' : '';
+    owner += ` · ${who ? `${who} ` : ''}Lv ${p.level}${p.alive ? '' : ' (dead)'}`;
   }
 
   ctx.save();

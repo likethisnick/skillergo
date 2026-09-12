@@ -8,6 +8,7 @@ import {
   type TeamId,
   type WorldView,
 } from '@skillergo/shared';
+import type { NetOverlay } from '../session/GameSession';
 import { drawArenaGround, drawNexus, drawTower } from './Arena';
 import { Camera } from './Camera';
 import type { Effects } from './Effects';
@@ -72,6 +73,8 @@ export class Renderer {
   private dpr = 1;
   /** Frame state shared by the draw helpers. */
   private versus = false;
+  /** Online match extras (names, ping); undefined in local games. */
+  private net: NetOverlay | undefined;
   private myTeam: TeamId = 'blue';
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -82,8 +85,9 @@ export class Renderer {
     window.addEventListener('resize', this.resize);
   }
 
-  render(view: WorldView, localPlayerId: EntityId, effects: Effects): void {
+  render(view: WorldView, localPlayerId: EntityId, effects: Effects, net?: NetOverlay): void {
     const { ctx, camera } = this;
+    this.net = net;
     const me = view.players.get(localPlayerId);
     if (me) {
       camera.follow(me.x, me.y);
@@ -123,7 +127,7 @@ export class Renderer {
         const size = camera.width < 700 ? 120 : 190;
         this.minimap.draw(ctx, view, localPlayerId, camera, camera.width - size - 20, 64, size, this.dpr);
       }
-      drawHud(ctx, me, view, effects, camera.width, camera.height);
+      drawHud(ctx, me, view, effects, camera.width, camera.height, net);
     }
   }
 
@@ -263,7 +267,9 @@ export class Renderer {
       ctx.font = 'bold 13px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(p.isBot ? `AI · Lv ${p.level}` : `Lv ${p.level}`, p.x, barY - 20);
+      const name = this.net?.names.get(p.id);
+      const tag = name ? `${name} · Lv ${p.level}` : p.isBot ? `AI · Lv ${p.level}` : `Lv ${p.level}`;
+      ctx.fillText(tag, p.x, barY - 20);
       ctx.restore();
     }
   }

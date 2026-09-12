@@ -120,7 +120,13 @@
 | Названия и описания оружия и способностей | `ui/loadoutInfo.ts` |
 | Меню по Esc | `ui/PauseMenu.ts` |
 | Панель тренировочной комнаты | `ui/TrainingPanel.ts` |
-| Где запускается симуляция (локально или по сети) | `session/LocalSession.ts`, интерфейс — `session/GameSession.ts` |
+| Где запускается симуляция (локально или по сети) | `session/LocalSession.ts`, онлайн — `session/NetworkSession.ts`, интерфейс — `session/GameSession.ts` |
+| Онлайн: сообщения клиент-сервер, проверка входящих данных | `packages/shared/src/net/protocol.ts` |
+| Онлайн: что и как пакуется в снапшот мира | `packages/shared/src/net/snapshot.ts` (новые поля сущностей добавлять сюда же) |
+| Онлайн: подключение, вход, очередь | `net/Connection.ts`, `ui/OnlinePanel.ts`, сервер — `apps/server/src/lobby.ts` |
+| Онлайн: предсказание своих действий и «мультик» | `session/NetworkSession.ts`, `session/Anticipation.ts` |
+| Онлайн: пинг, имена, предупреждения о связи на экране | `render/Hud.ts` → `drawNetOverlay` |
+| Рейтинг и его цифры | `game.config.json` → `startRating`, `ratingWin`, `ratingLoss`; начисление — `apps/server/src/match.ts` |
 | Отправка истории забегов | `history/HistoryReporter.ts`; запись в файл — `apps/client/dev/historyLog.ts` |
 
 ## Рецепты

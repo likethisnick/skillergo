@@ -12,6 +12,7 @@
   "beamDamagePerSecond": 40,
   "hookDamage": 20,
   "shotgunDamage": 120,
+  "swordRegenPercent": 1,
   "rifleDamage": 240,
   "fireballDamage": 90,
   "blinkDamage": 110,
@@ -59,6 +60,10 @@
   "playerKillXpPerLevel": 8,
   "versusLevelXp": 1500,
   "versusLevelXpStep": 400,
+
+  "startRating": 1300,
+  "ratingWin": 20,
+  "ratingLoss": 20,
 
   "historyEnabled": true,
   "historyDir": "logs",

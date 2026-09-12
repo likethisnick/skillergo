@@ -1,9 +1,8 @@
 import { CONFIG } from '../config';
 import { DEFAULT_SERVER_CONFIG, type ServerConfig } from '../server.config';
 import {
-  ABILITY_TYPES,
+  CLASS_IDS,
   UPGRADE_STATS,
-  WEAPON_TYPES,
   type EntityId,
   type GameSettings,
   type Loadout,
@@ -138,9 +137,8 @@ export function sanitizeInput(raw: unknown): PlayerInput | null {
 export function sanitizeLoadout(raw: unknown): Loadout | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
-  const weapon = WEAPON_TYPES.find((w) => w === r.weapon);
-  const ability = ABILITY_TYPES.find((a) => a === r.ability);
-  return weapon && ability ? { weapon, ability } : null;
+  const classId = CLASS_IDS.find((id) => id === r.classId);
+  return classId ? { classId } : null;
 }
 
 /** Display names: control characters removed, trimmed, 2..20 characters. */

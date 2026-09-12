@@ -91,7 +91,7 @@ export function encodeSnapshotBody(
     en.push([
       e.id, indexOf(ENEMY_KINDS, e.kind), teamIndex(e.team), indexOf(ROLES, e.role), (e.boss ? 1 : 0) | (e.elite ? 2 : 0),
       r1(e.x), r1(e.y), r1(e.radius), r1(e.hp), r1(e.maxHp), r3(e.aim), r2(e.windup), r2(e.burstTimer),
-      r1(e.vx), r1(e.vy), r2(e.lastAttackTime), e.pulledBy ?? -1, r2(e.age), r2(e.hitFlash),
+      r1(e.vx), r1(e.vy), r2(e.lastAttackTime), e.pulledBy ?? -1, r2(e.age), r2(e.hitFlash), r2(e.rallyTimer),
     ]);
   }
   const pr: number[][] = [];
@@ -156,6 +156,8 @@ export function decodeEnemy(a: readonly number[]): Enemy {
     pulledBy: pulledBy >= 0 ? pulledBy : null,
     age: a[17],
     hitFlash: a[18],
+    // Summoner's rally buff: the client draws the yellow aura from it.
+    rallyTimer: a[19] ?? 0,
     // Not sent: only the simulation needs them.
     lane: null,
     waypoint: 0,
@@ -193,6 +195,9 @@ export function decodeProjectile(a: readonly number[]): Projectile {
     ignoresWalls: false,
     piercesBuildings: false,
     aimedAt: null,
+    // Bursts are drawn from the 'explosion' event, so the blast itself is not sent.
+    blastRadius: 0,
+    blastDamage: 0,
   };
 }
 

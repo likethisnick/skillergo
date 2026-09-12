@@ -124,6 +124,15 @@ The marksman sees 25% more of the world than everybody else, because his rifle s
 screen shows. In versus the camera is pulled back for everyone (`CONFIG.versusViewScale`), so a tower's range
 circle fits on the screen.
 
+## Online 1v1
+
+Ranked matches against real players run on an authoritative server (`apps/server`, deployed to Fly.io):
+the client sends only `PlayerInput`, the server runs the same `World` and broadcasts a snapshot every tick,
+and the client predicts its own movement and shots. Sign in with GitHub / Google (or as a guest, if the server
+allows it) in the **Online 1v1** card on the start screen. Rating starts at `startRating` and moves by
+`ratingWin` / `ratingLoss` (all three in `game.config.json`). How it works and how to run it locally:
+[MULTIPLAYER.md](MULTIPLAYER.md).
+
 ## Levels and upgrades
 
 Every level (1000, 1100, 1200... XP in survival; 1500, 1900, 2300... in versus; drops scale with `xpMultiplier`) gives +30% of the starting HP (healed right away)
@@ -221,13 +230,17 @@ packages/shared/          Pure game simulation: no DOM, runs in a browser or Nod
   src/arena.ts            Versus layout: territories, neutral band, lanes, bases
   src/classes.ts          Class table: weapon + ability pair, view size, rifle range
   src/history.ts          Run summary (history log entry) builder
+  src/net/                Wire protocol (messages, validation) and snapshot encoding
+  src/collision.ts        Obstacle resolution shared by the simulation and client prediction
   src/ai/bot.ts           AI player: produces PlayerInput like a human would
   src/systems/            players (upgrades, buffs, move, dash, regen, respawn), weapons, abilities,
                           hook, enemies (AI), projectiles, orbs, power-ups, spawner (survival),
                           arena (versus setup, waves, farmers, defenders), towers (versus tower fire),
                           targets (who can hit whom)
 apps/client/              Browser client (Vite + TypeScript + Canvas 2D)
-  src/session/            GameSession interface + LocalSession (runs World in the browser)
+  src/session/            GameSession interface, LocalSession (World in the browser),
+                          NetworkSession (online match: prediction + snapshots), Anticipation
+  src/net/                WebSocket connection, snapshot-backed WorldView, sign-in helpers
   src/input/              Keyboard/mouse -> PlayerInput
   src/render/             Camera, Canvas renderer, HUD, effects, icons, team colors,
                           versus ground, nexus and towers (Arena.ts), minimap

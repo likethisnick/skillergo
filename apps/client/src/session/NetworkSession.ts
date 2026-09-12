@@ -365,6 +365,7 @@ export class NetworkSession implements GameSession {
         id: g.id, ownerId: this.localPlayerId, team, source: 'player',
         x: g.x, y: g.y, vx: g.vx, vy: g.vy, radius: g.radius,
         life: g.life, damage: 0, ignoresWalls: false, piercesBuildings: false, aimedAt: null,
+        blastRadius: 0, blastDamage: 0,
       });
     }
   }

@@ -23,6 +23,8 @@ export interface ServerConfig {
   beamDamagePerSecond: number;
   hookDamage: number;
   shotgunDamage: number;
+  /** Sword users regain this share of their max HP per second, even in a fight. */
+  swordRegenPercent: number;
   /** Marksman rifle: one heavy shot per cooldown (~1.5x the gunner's DPS when every shot lands). */
   rifleDamage: number;
   /** Summoner fireball: damage of the burst. */
@@ -84,6 +86,11 @@ export interface ServerConfig {
   versusLevelXp: number;
   versusLevelXpStep: number;
 
+  /** Online 1v1 rating: where a new player starts and what a match is worth. */
+  startRating: number;
+  ratingWin: number;
+  ratingLoss: number;
+
   historyEnabled: boolean;
   historyDir: string;
   historyFile: string;
@@ -102,6 +109,7 @@ const FALLBACK: ServerConfig = {
   beamDamagePerSecond: 40,
   hookDamage: 20,
   shotgunDamage: 120,
+  swordRegenPercent: 1,
   rifleDamage: 240,
   fireballDamage: 90,
   blinkDamage: 110,
@@ -146,6 +154,9 @@ const FALLBACK: ServerConfig = {
   playerKillXpPerLevel: 8,
   versusLevelXp: 1500,
   versusLevelXpStep: 400,
+  startRating: 1300,
+  ratingWin: 20,
+  ratingLoss: 20,
   historyEnabled: true,
   historyDir: 'logs',
   historyFile: 'history.jsonl',

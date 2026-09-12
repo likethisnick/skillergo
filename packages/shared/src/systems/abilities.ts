@@ -1,6 +1,7 @@
 import { CONFIG } from '../config';
 import { circleInCone, distanceSq, wrapAngle } from '../math/vec2';
 import { abilityDamage, abilityScaling } from '../stats';
+import type { ServerConfig } from '../server.config';
 import type { EntityId, Player, TargetKind } from '../types';
 import type { World } from '../world';
 import { throwHook, updateHook } from './hook';
@@ -9,8 +10,21 @@ import { canBeTargeted, damageTarget, forEachHostile } from './targets';
 const A = CONFIG.abilities;
 const EPS = 1e-6;
 /** The shield can grow with upgrades but never becomes a full circle. */
-const MAX_SHIELD_ARC = (270 * Math.PI) / 180;
-const MAX_SHOTGUN_ARC = (110 * Math.PI) / 180;
+export const MAX_SHIELD_ARC = (270 * Math.PI) / 180;
+export const MAX_SHOTGUN_ARC = (110 * Math.PI) / 180;
+
+/** Reach, width and damage of this player's shotgun blast (the client predicts it with the same numbers). */
+export function shotgunCone(
+  p: Readonly<Player>,
+  server: Readonly<ServerConfig>,
+): { range: number; arc: number; damage: number } {
+  const s = abilityScaling(p);
+  return {
+    range: A.shotgun.range * s.radius,
+    arc: Math.min(MAX_SHOTGUN_ARC, A.shotgun.arc * (1 + (s.radius - 1) / 2)),
+    damage: abilityDamage(p, server.shotgunDamage),
+  };
+}
 
 /** RMB press. Does nothing while locked or on cooldown. */
 export function tryUseAbility(world: World, p: Player): void {
@@ -153,11 +167,7 @@ function startCooldown(p: Player, seconds: number, total = seconds): void {
 
 /** Instant cone blast: every enemy inside the cone takes full damage. */
 function fireShotgun(world: World, p: Player): void {
-  const C = A.shotgun;
-  const s = abilityScaling(p);
-  const range = C.range * s.radius;
-  const arc = Math.min(MAX_SHOTGUN_ARC, C.arc * (1 + (s.radius - 1) / 2));
-  const damage = abilityDamage(p, world.server.shotgunDamage);
+  const { range, arc, damage } = shotgunCone(p, world.server);
   const hits: [TargetKind, EntityId][] = [];
   forEachHostile(world, p.team, (kind, id, body) => {
     if (

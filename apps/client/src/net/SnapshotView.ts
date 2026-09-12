@@ -38,6 +38,8 @@ export class SnapshotView implements WorldView, MovementEnv {
   readonly server: ServerConfig;
   readonly mode: GameMode = 'versus';
   readonly intensity = 0;
+  /** How much world a standard player sees here (versus pulls the camera back). */
+  readonly view = { width: CONFIG.view.width * CONFIG.versusViewScale, height: CONFIG.view.height * CONFIG.versusViewScale };
 
   readonly players = new Map<EntityId, Player>();
   readonly enemies = new Map<EntityId, Enemy>();

@@ -158,10 +158,13 @@ export class Effects {
         }
         case 'victory': {
           const won = me?.team === ev.team;
+          const forfeit = ev.reason === 'forfeit';
           this.setBanner({
             kind: 'result',
             title: won ? 'VICTORY' : 'DEFEAT',
-            subtitle: won ? 'The enemy nexus has fallen' : 'Your nexus has fallen',
+            subtitle: forfeit
+              ? won ? 'The opponent left the match' : 'You left the match'
+              : won ? 'The enemy nexus has fallen' : 'Your nexus has fallen',
             color: won ? '#2e9e5b' : '#b83b34',
             age: 0,
             life: 4,
@@ -212,6 +215,10 @@ export class Effects {
           break;
         case 'blocked':
           this.rings.push({ x: ev.x, y: ev.y, color: '#4a90e2', radius: 38, age: 0, life: 0.3 });
+          break;
+        case 'bulletCut':
+          // A sword swing knocked a bullet out of the air.
+          this.rings.push({ x: ev.x, y: ev.y, color: '#9aa4ad', radius: 26, age: 0, life: 0.25 });
           break;
         case 'wallHit':
           this.rings.push({ x: ev.x, y: ev.y, color: '#9aa4ad', radius: 14, age: 0, life: 0.2 });
